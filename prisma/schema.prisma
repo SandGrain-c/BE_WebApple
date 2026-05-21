@@ -1,0 +1,481 @@
+generator client {
+  provider        = "prisma-client"
+  output          = "../src/generated/prisma"
+  previewFeatures = ["partialIndexes"]
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model audit_logs {
+  log_id      Int      @id(map: "pk_audit_logs") @default(autoincrement())
+  user_id     Int?
+  action      String   @db.VarChar(100)
+  entity_type String   @db.VarChar(100)
+  entity_id   Int?
+  old_value   String?
+  new_value   String?
+  ip_address  String?  @db.VarChar(50)
+  created_at  DateTime @default(now()) @db.Timestamp(6)
+  users       users?   @relation(fields: [user_id], references: [user_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_audit_logs_users")
+}
+
+model banners {
+  banner_id  Int     @id(map: "pk_banners") @default(autoincrement())
+  title      String? @db.VarChar(100)
+  image_url  String? @db.VarChar(255)
+  target_url String? @db.VarChar(255)
+  position   String? @db.VarChar(50)
+  is_active  Boolean @default(true)
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model cart_items {
+  cart_item_id     Int              @id(map: "pk_cart_items") @default(autoincrement())
+  cart_id          Int
+  variant_id       Int
+  quantity         Int              @default(1)
+  carts            carts            @relation(fields: [cart_id], references: [cart_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_cart_items_carts")
+  product_variants product_variants @relation(fields: [variant_id], references: [variant_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_cart_items_variants")
+
+  @@unique([cart_id, variant_id], map: "uq_cart_items_cart_variant")
+}
+
+model carts {
+  cart_id    Int          @id(map: "pk_carts") @default(autoincrement())
+  user_id    Int          @unique(map: "uq_carts_user_id")
+  created_at DateTime     @default(now()) @db.Timestamp(6)
+  cart_items cart_items[]
+  users      users        @relation(fields: [user_id], references: [user_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_carts_users")
+}
+
+model categories {
+  category_id   Int        @id(map: "pk_categories") @default(autoincrement())
+  category_name String     @unique(map: "uq_categories_category_name") @db.VarChar(100)
+  slug          String     @unique @db.VarChar(150)
+  products      products[]
+}
+
+model favorite_products {
+  favorite_id Int      @id(map: "pk_favorite_ce74_faf59_e60_b2_eb") @default(autoincrement())
+  user_id     Int
+  product_id  Int
+  created_at  DateTime @default(now()) @db.Timestamp(6)
+  products    products @relation(fields: [product_id], references: [product_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_favorite_products_products")
+  users       users    @relation(fields: [user_id], references: [user_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_favorite_products_users")
+
+  @@unique([user_id, product_id], map: "uq_favorite_products_user_product")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model flash_sale_items {
+  flash_sale_item_id Int              @id(map: "pk_flash_sa_703_e929_e6_ef5_df4_d") @default(autoincrement())
+  flash_sale_id      Int
+  variant_id         Int
+  sale_price         Decimal          @db.Decimal(18, 2)
+  quantity_limit     Int
+  sold_quantity      Int              @default(0)
+  created_at         DateTime         @default(now()) @db.Timestamp(6)
+  is_active          Boolean          @default(true)
+  flash_sales        flash_sales      @relation(fields: [flash_sale_id], references: [flash_sale_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_flash_sale_items_flash_sales")
+  product_variants   product_variants @relation(fields: [variant_id], references: [variant_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_flash_sale_items_product_variants")
+
+  @@unique([flash_sale_id, variant_id], map: "uq_flash_sale_items_flash_sale_variant")
+  @@index([flash_sale_id, is_active], map: "ix_flash_sale_items_flash_sale_active")
+  @@index([variant_id], map: "ix_flash_sale_items_variant_id")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model flash_sales {
+  flash_sale_id    Int                @id(map: "pk_flash_sa_d603_a204_cdc8_dce3") @default(autoincrement())
+  flash_sale_name  String             @db.VarChar(255)
+  start_time       DateTime           @db.Timestamp(6)
+  end_time         DateTime           @db.Timestamp(6)
+  status           String             @default("Upcoming") @db.VarChar(30)
+  created_at       DateTime           @default(now()) @db.Timestamp(6)
+  flash_sale_items flash_sale_items[]
+
+  @@index([start_time, end_time, status], map: "ix_flash_sales_time_status")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model inventory_receipt_details {
+  receipt_detail_id  Int                @id(map: "pk_inventory_receipt_details") @default(autoincrement())
+  receipt_id         Int
+  variant_id         Int
+  quantity           Int
+  cost_price         Decimal            @db.Decimal(18, 2)
+  inventory_receipts inventory_receipts @relation(fields: [receipt_id], references: [receipt_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_inventory_receipt_details_receipts")
+  product_variants   product_variants   @relation(fields: [variant_id], references: [variant_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_inventory_receipt_details_variants")
+  product_items      product_items[]
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model inventory_receipts {
+  receipt_id                Int                         @id(map: "pk_inventory_receipts") @default(autoincrement())
+  warehouse_staff_id        Int
+  supplier_name             String?                     @db.VarChar(200)
+  total_amount              Decimal?                    @db.Decimal(18, 2)
+  created_at                DateTime                    @default(now()) @db.Timestamp(6)
+  supplier_id               Int?
+  inventory_receipt_details inventory_receipt_details[]
+  suppliers                 suppliers?                  @relation(fields: [supplier_id], references: [supplier_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_inventory_receipts_suppliers")
+  users                     users                       @relation(fields: [warehouse_staff_id], references: [user_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_inventory_receipts_users")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model order_details {
+  order_detail_id  Int              @id(map: "pk_order_details") @default(autoincrement())
+  order_id         Int
+  variant_id       Int
+  quantity         Int
+  unit_price       Decimal          @db.Decimal(18, 2)
+  orders           orders           @relation(fields: [order_id], references: [order_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_order_details_orders")
+  product_variants product_variants @relation(fields: [variant_id], references: [variant_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_order_details_variants")
+  product_items    product_items[]
+  reviews          reviews[]
+
+  @@unique([order_id, variant_id], map: "uq_order_details_order_variant")
+  @@index([order_id], map: "ix_order_details_order_id")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model order_status_history {
+  history_id Int      @id(map: "pk_order_status_history") @default(autoincrement())
+  order_id   Int
+  old_status String?  @db.VarChar(50)
+  new_status String   @db.VarChar(50)
+  changed_by Int?
+  note       String?  @db.VarChar(500)
+  created_at DateTime @default(now()) @db.Timestamp(6)
+  orders     orders   @relation(fields: [order_id], references: [order_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_order_status_history_orders")
+  users      users?   @relation(fields: [changed_by], references: [user_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_order_status_history_users")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model orders {
+  order_id             Int                    @id(map: "pk_orders") @default(autoincrement())
+  user_id              Int?
+  order_code           String                 @unique(map: "uq_orders_order_code") @db.VarChar(50)
+  voucher_id           Int?
+  sub_total            Decimal                @db.Decimal(18, 2)
+  shipping_fee         Decimal                @default(0) @db.Decimal(18, 2)
+  discount_amount      Decimal                @default(0) @db.Decimal(18, 2)
+  total_amount         Decimal                @db.Decimal(18, 2)
+  order_status         String                 @default("PendingPayment") @db.VarChar(50)
+  customer_name        String?                @db.VarChar(100)
+  customer_phone       String?                @db.VarChar(15)
+  shipping_address     String?                @db.VarChar(500)
+  created_at           DateTime               @default(now()) @db.Timestamp(6)
+  updated_at           DateTime               @default(now()) @db.Timestamp(6)
+  address_id           Int?
+  order_details        order_details[]
+  order_status_history order_status_history[]
+  user_addresses       user_addresses?        @relation(fields: [address_id], references: [address_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_orders_user_addresses")
+  users                users?                 @relation(fields: [user_id], references: [user_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_orders_users")
+  vouchers             vouchers?              @relation(fields: [voucher_id], references: [voucher_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_orders_vouchers")
+  payment_transactions payment_transactions[]
+  shipments            shipments[]
+  stock_reservations   stock_reservations[]
+  support_tickets      support_tickets[]
+  voucher_usages       voucher_usages?
+
+  @@index([user_id], map: "ix_orders_user_id")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model payment_transactions {
+  transaction_id   Int       @id(map: "pk_payment_transactions") @default(autoincrement())
+  order_id         Int
+  gateway          String?   @db.VarChar(50)
+  transaction_ref  String?   @unique(map: "ux_payment_transactions_transaction_ref_not_null", where: raw("(transaction_ref IS NOT NULL)")) @db.VarChar(100)
+  amount           Decimal   @db.Decimal(18, 2)
+  payment_type     String    @default("Payment") @db.VarChar(20)
+  status           String    @default("Pending") @db.VarChar(20)
+  created_at       DateTime  @default(now()) @db.Timestamp(6)
+  gateway_response String?
+  paid_at          DateTime? @db.Timestamp(6)
+  updated_at       DateTime? @db.Timestamp(6)
+  orders           orders    @relation(fields: [order_id], references: [order_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_payment_transactions_orders")
+
+  @@index([order_id], map: "ix_payment_transactions_order_id")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model product_images {
+  image_id         Int               @id(map: "pk_product_images") @default(autoincrement())
+  product_id       Int
+  color            String            @db.VarChar(50)
+  image_url        String            @db.VarChar(500)
+  alt_text         String?           @db.VarChar(255)
+  is_thumbnail     Boolean           @default(false)
+  sort_order       Int               @default(0)
+  is_active        Boolean           @default(true)
+  created_at       DateTime          @default(now()) @db.Timestamp(6)
+  variant_id       Int?
+  product_variants product_variants? @relation(fields: [variant_id], references: [variant_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_product_images_product_variants")
+  products         products          @relation(fields: [product_id], references: [product_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_product_images_products")
+
+  @@unique([product_id, color], map: "ux_product_images_one_thumbnail_per_color", where: raw("((is_thumbnail = true) AND (is_active = true))"))
+  @@index([product_id, color, sort_order], map: "ix_product_images_product_color")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model product_items {
+  item_id                   Int                        @id(map: "pk_product_items") @default(autoincrement())
+  variant_id                Int
+  serial_number             String                     @unique(map: "uq_product_items_serial_number") @db.VarChar(50)
+  status                    Int                        @default(1) @db.SmallInt
+  import_receipt_detail_id  Int?
+  order_detail_id           Int?
+  order_details             order_details?             @relation(fields: [order_detail_id], references: [order_detail_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_product_items_order_details")
+  inventory_receipt_details inventory_receipt_details? @relation(fields: [import_receipt_detail_id], references: [receipt_detail_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_product_items_receipt_details")
+  product_variants          product_variants           @relation(fields: [variant_id], references: [variant_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_product_items_variants")
+  stock_reservations        stock_reservations[]
+  support_tickets           support_tickets[]
+
+  @@index([variant_id, status], map: "ix_product_items_variant_status")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model product_variants {
+  variant_id                Int                         @id(map: "pk_product_variants") @default(autoincrement())
+  product_id                Int
+  sku                       String                      @unique(map: "uq_product_variants_sku") @db.VarChar(50)
+  color                     String                      @db.VarChar(50)
+  capacity                  String                      @db.VarChar(20)
+  ram                       String                      @db.VarChar(20)
+  country                   String?                     @db.VarChar(20)
+  price                     Decimal                     @db.Decimal(18, 2)
+  stock_quantity            Int                         @default(0)
+  cart_items                cart_items[]
+  flash_sale_items          flash_sale_items[]
+  inventory_receipt_details inventory_receipt_details[]
+  order_details             order_details[]
+  product_images            product_images[]
+  product_items             product_items[]
+  products                  products                    @relation(fields: [product_id], references: [product_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_product_variants_products")
+
+  @@unique([product_id, color, capacity, ram], map: "uq_product_variants_product_config")
+}
+
+model products {
+  product_id        Int                 @id(map: "pk_products") @default(autoincrement())
+  category_id       Int
+  name              String              @db.VarChar(255)
+  slug              String              @unique @db.VarChar(300)
+  description       String?
+  is_active         Boolean             @default(true)
+  created_at        DateTime            @default(now()) @db.Timestamp(6)
+  favorite_products favorite_products[]
+  product_images    product_images[]
+  product_variants  product_variants[]
+  categories        categories          @relation(fields: [category_id], references: [category_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_products_categories")
+  reviews           reviews[]
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model reviews {
+  review_id       Int            @id(map: "pk_reviews") @default(autoincrement())
+  user_id         Int
+  product_id      Int
+  order_detail_id Int?
+  rating          Int            @db.SmallInt
+  comment         String?
+  created_at      DateTime       @default(now()) @db.Timestamp(6)
+  order_details   order_details? @relation(fields: [order_detail_id], references: [order_detail_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_reviews_order_details")
+  products        products       @relation(fields: [product_id], references: [product_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_reviews_products")
+  users           users          @relation(fields: [user_id], references: [user_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_reviews_users")
+
+  @@unique([user_id, order_detail_id], map: "ux_reviews_user_order_detail_not_null", where: raw("(order_detail_id IS NOT NULL)"))
+}
+
+model roles {
+  role_id   Int     @id(map: "pk_roles") @default(autoincrement())
+  role_name String  @unique(map: "uq_roles_role_name") @db.VarChar(50)
+  users     users[]
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model shipment_status_history {
+  shipment_history_id Int       @id(map: "pk_shipment_status_history") @default(autoincrement())
+  shipment_id         Int
+  status              String    @db.VarChar(50)
+  location            String?   @db.VarChar(255)
+  note                String?   @db.VarChar(500)
+  updated_at          DateTime  @default(now()) @db.Timestamp(6)
+  shipments           shipments @relation(fields: [shipment_id], references: [shipment_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_shipment_status_history_shipments")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model shipments {
+  shipment_id             Int                       @id(map: "pk_shipments") @default(autoincrement())
+  order_id                Int
+  shipping_provider       String?                   @db.VarChar(100)
+  tracking_code           String?                   @unique(map: "ux_shipments_tracking_code_not_null", where: raw("(tracking_code IS NOT NULL)")) @db.VarChar(100)
+  status                  String                    @default("Pending") @db.VarChar(50)
+  created_at              DateTime                  @default(now()) @db.Timestamp(6)
+  shipment_status_history shipment_status_history[]
+  orders                  orders                    @relation(fields: [order_id], references: [order_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_shipments_orders")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model staff_profiles {
+  staff_id    Int      @id(map: "pk_staff_profiles") @default(autoincrement())
+  user_id     Int      @unique(map: "uq_staff_profiles_user_id")
+  citizen_id  String   @unique(map: "uq_staff_profiles_citizen_id") @db.VarChar(20)
+  hire_date   DateTime @db.Date
+  base_salary Decimal? @db.Decimal(18, 2)
+  branch      String?  @db.VarChar(100)
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model stock_reservations {
+  reservation_id Int           @id(map: "pk_stock_re_b7_ee5_f04_ace71045") @default(autoincrement())
+  item_id        Int
+  user_id        Int
+  order_id       Int?
+  reserved_at    DateTime      @default(now()) @db.Timestamp(6)
+  expired_at     DateTime      @db.Timestamp(6)
+  status         String        @default("Active") @db.VarChar(30)
+  orders         orders?       @relation(fields: [order_id], references: [order_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_stock_reservations_orders")
+  product_items  product_items @relation(fields: [item_id], references: [item_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_stock_reservations_product_items")
+  users          users         @relation(fields: [user_id], references: [user_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_stock_reservations_users")
+
+  @@index([item_id, status], map: "ix_stock_reservations_item_status")
+}
+
+model suppliers {
+  supplier_id        Int                  @id(map: "pk_supplier_4_be66694_c643_e820") @default(autoincrement())
+  supplier_name      String               @db.VarChar(255)
+  phone              String?              @db.VarChar(20)
+  email              String?              @db.VarChar(255)
+  address            String?              @db.VarChar(500)
+  status             String               @default("Active") @db.VarChar(20)
+  created_at         DateTime             @default(now()) @db.Timestamp(6)
+  inventory_receipts inventory_receipts[]
+}
+
+model support_ticket_media {
+  media_id        Int             @id(map: "pk_support_b2_c2_b5_af226_c0_d7_c") @default(autoincrement())
+  ticket_id       Int
+  media_url       String          @db.VarChar(500)
+  media_type      String          @db.VarChar(20)
+  created_at      DateTime        @default(now()) @db.Timestamp(6)
+  support_tickets support_tickets @relation(fields: [ticket_id], references: [ticket_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_support_ticket_media_tickets")
+}
+
+model support_ticket_status_history {
+  history_id      Int             @id(map: "pk_support_4_d7_b4_adda85524_c8") @default(autoincrement())
+  ticket_id       Int
+  old_status      String?         @db.VarChar(50)
+  new_status      String          @db.VarChar(50)
+  changed_by      Int?
+  note            String?
+  created_at      DateTime        @default(now()) @db.Timestamp(6)
+  support_tickets support_tickets @relation(fields: [ticket_id], references: [ticket_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_ticket_status_history_tickets")
+  users           users?          @relation(fields: [changed_by], references: [user_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_ticket_status_history_users")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model support_tickets {
+  ticket_id                               Int                             @id(map: "pk_support_tickets") @default(autoincrement())
+  user_id                                 Int
+  order_id                                Int?
+  item_id                                 Int?
+  ticket_type                             String                          @db.VarChar(50)
+  reason                                  String?
+  status                                  String                          @default("Open") @db.VarChar(50)
+  handled_by                              Int?
+  created_at                              DateTime                        @default(now()) @db.Timestamp(6)
+  resolved_at                             DateTime?                       @db.Timestamp(6)
+  support_ticket_media                    support_ticket_media[]
+  support_ticket_status_history           support_ticket_status_history[]
+  users_support_tickets_handled_byTousers users?                          @relation("support_tickets_handled_byTousers", fields: [handled_by], references: [user_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_support_tickets_handled_by")
+  product_items                           product_items?                  @relation(fields: [item_id], references: [item_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_support_tickets_items")
+  orders                                  orders?                         @relation(fields: [order_id], references: [order_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_support_tickets_orders")
+  users_support_tickets_user_idTousers    users                           @relation("support_tickets_user_idTousers", fields: [user_id], references: [user_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_support_tickets_users")
+}
+
+model user_addresses {
+  address_id       Int      @id(map: "pk_user_addresses") @default(autoincrement())
+  user_id          Int      @unique(map: "ux_user_addresses_one_default_per_user", where: raw("(is_default = true)"))
+  receiver_name    String   @db.VarChar(100)
+  receiver_phone   String   @db.VarChar(15)
+  detailed_address String   @db.VarChar(255)
+  ward             String   @db.VarChar(50)
+  city             String   @db.VarChar(50)
+  is_default       Boolean  @default(false)
+  orders           orders[]
+  users            users    @relation(fields: [user_id], references: [user_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_user_addresses_users")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model users {
+  user_id                                           Int                             @id(map: "pk_users") @default(autoincrement())
+  role_id                                           Int
+  email                                             String?                         @unique(map: "ux_users_email_not_null", where: raw("(email IS NOT NULL)")) @db.VarChar(100)
+  phone                                             String?                         @unique(map: "ux_users_phone_not_null", where: raw("(phone IS NOT NULL)")) @db.VarChar(15)
+  user_name                                         String                          @unique(map: "uq_users_user_name") @db.VarChar(25)
+  pass_hash                                         String                          @db.VarChar(255)
+  full_name                                         String                          @db.VarChar(100)
+  status                                            Int                             @default(1) @db.SmallInt
+  created_at                                        DateTime                        @default(now()) @db.Timestamp(6)
+  audit_logs                                        audit_logs[]
+  carts                                             carts?
+  favorite_products                                 favorite_products[]
+  inventory_receipts                                inventory_receipts[]
+  order_status_history                              order_status_history[]
+  orders                                            orders[]
+  reviews                                           reviews[]
+  stock_reservations                                stock_reservations[]
+  support_ticket_status_history                     support_ticket_status_history[]
+  support_tickets_support_tickets_handled_byTousers support_tickets[]               @relation("support_tickets_handled_byTousers")
+  support_tickets_support_tickets_user_idTousers    support_tickets[]               @relation("support_tickets_user_idTousers")
+  user_addresses                                    user_addresses?
+  roles                                             roles                           @relation(fields: [role_id], references: [role_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_users_roles")
+  verification_tokens                               verification_tokens[]
+  voucher_usages                                    voucher_usages[]
+}
+
+model verification_tokens {
+  token_id   Int       @id(map: "pk_verifica_658_fee8_add2_e3_e8_c") @default(autoincrement())
+  user_id    Int
+  token      String    @db.VarChar(255)
+  token_type String    @db.VarChar(50)
+  expired_at DateTime  @db.Timestamp(6)
+  used_at    DateTime? @db.Timestamp(6)
+  created_at DateTime  @default(now()) @db.Timestamp(6)
+  users      users     @relation(fields: [user_id], references: [user_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_verification_tokens_users")
+}
+
+model voucher_usages {
+  voucher_usage_id Int      @id(map: "pk_voucher_usages") @default(autoincrement())
+  voucher_id       Int
+  user_id          Int
+  order_id         Int      @unique(map: "uq_voucher_usages_order")
+  used_at          DateTime @default(now()) @db.Timestamp(6)
+  orders           orders   @relation(fields: [order_id], references: [order_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_voucher_usages_orders")
+  users            users    @relation(fields: [user_id], references: [user_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_voucher_usages_users")
+  vouchers         vouchers @relation(fields: [voucher_id], references: [voucher_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_voucher_usages_vouchers")
+
+  @@unique([voucher_id, user_id], map: "uq_voucher_usages_voucher_user")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model vouchers {
+  voucher_id          Int              @id(map: "pk_vouchers") @default(autoincrement())
+  code                String           @unique(map: "uq_vouchers_code") @db.VarChar(20)
+  discount_type       String           @db.VarChar(20)
+  discount_value      Decimal          @db.Decimal(18, 2)
+  min_order_value     Decimal?         @db.Decimal(18, 2)
+  max_discount_amount Decimal?         @db.Decimal(18, 2)
+  usage_limit         Int?
+  used_count          Int              @default(0)
+  start_date          DateTime?        @db.Timestamp(6)
+  end_date            DateTime?        @db.Timestamp(6)
+  is_active           Boolean          @default(true)
+  orders              orders[]
+  voucher_usages      voucher_usages[]
+}

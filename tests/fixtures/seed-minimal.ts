@@ -8,6 +8,7 @@ import {
   type FixtureRoleName,
 } from "../factories/user.factory";
 import { AUTH_TEST_PASSWORD } from "../factories/auth.factory";
+import { createOwnershipFixtures } from "../factories/ownership.factory";
 import {
   FIXTURE_VERSION,
   type AccountFixture,
@@ -46,6 +47,7 @@ export async function seedMinimalFixtures(
     "Admin",
     "Staff",
     "WarehouseStaff",
+    "UnknownTestRole",
   ];
   const roleRows = await Promise.all(
     roleNames.map((roleName) => ensureRole(prisma, roleName)),
@@ -128,6 +130,15 @@ export async function seedMinimalFixtures(
     passHash,
     status: 1,
   });
+  const unknownRoleActive = await createUserFixture(prisma, {
+    roleId: roleId("UnknownTestRole"),
+    userName: "tst_unknown_role",
+    email: "unknown-role@test.invalid",
+    phone: "0900000008",
+    fullName: "Test Unknown Role",
+    passHash,
+    status: 1,
+  });
 
   await createStaffProfileFixture(prisma, {
     userId: staffActive.user_id,
@@ -142,6 +153,12 @@ export async function seedMinimalFixtures(
 
   const { category, product, variant } =
     await createActiveCatalogFixture(prisma);
+  const ownership = await createOwnershipFixtures(prisma, {
+    customerAId: customerActive.user_id,
+    customerBId: customerB.user_id,
+    productId: product.product_id,
+    variantId: variant.variant_id,
+  });
 
   return {
     fixtureVersion: FIXTURE_VERSION,
@@ -153,6 +170,10 @@ export async function seedMinimalFixtures(
       admin_locked: toAccount(adminLocked, "Admin"),
       staff_active: toAccount(staffActive, "Staff"),
       warehouse_active: toAccount(warehouseActive, "WarehouseStaff"),
+      unknown_role_active: toAccount(
+        unknownRoleActive,
+        "UnknownTestRole",
+      ),
     },
     catalog: {
       category_active: {
@@ -167,6 +188,75 @@ export async function seedMinimalFixtures(
         variantId: variant.variant_id,
         sku: variant.sku,
         stockQuantity: variant.stock_quantity,
+      },
+    },
+    ownership: {
+      address_a: {
+        addressId: ownership.addressA.address_id,
+      },
+      address_b: {
+        addressId: ownership.addressB.address_id,
+        receiverName: ownership.addressB.receiver_name,
+        receiverPhone: ownership.addressB.receiver_phone,
+        detailedAddress: ownership.addressB.detailed_address,
+        isDefault: ownership.addressB.is_default,
+      },
+      cart_item_a: {
+        cartItemId: ownership.cartItemA.cart_item_id,
+      },
+      cart_item_b: {
+        cartItemId: ownership.cartItemB.cart_item_id,
+        quantity: ownership.cartItemB.quantity,
+        selected: ownership.cartItemB.selected,
+      },
+      order_a: {
+        orderId: ownership.orderA.order_id,
+      },
+      order_b: {
+        orderId: ownership.orderB.order_id,
+        status: ownership.orderB.order_status,
+        orderCode: ownership.orderB.order_code,
+      },
+      payment_b: {
+        transactionId: ownership.paymentB.transaction_id,
+        status: ownership.paymentB.status,
+        transactionRef: ownership.paymentB.transaction_ref!,
+      },
+      shipment_b: {
+        shipmentId: ownership.shipmentB.shipment_id,
+        status: ownership.shipmentB.status,
+        trackingCode: ownership.shipmentB.tracking_code!,
+      },
+      review_b: {
+        reviewId: ownership.reviewB.review_id,
+        rating: ownership.reviewB.rating,
+        comment: ownership.reviewB.comment!,
+        isActive: ownership.reviewB.is_active,
+      },
+      favorite_b: {
+        favoriteId: ownership.favoriteB.favorite_id,
+        productId: ownership.favoriteB.product_id,
+      },
+      voucher_b: {
+        voucherId: ownership.voucherB.voucher_id,
+        usedCount: ownership.voucherB.used_count,
+      },
+      order_history_b: {
+        historyId: ownership.orderHistoryB.history_id,
+      },
+    },
+    adminDomain: {
+      banner: {
+        bannerId: ownership.banner.banner_id,
+      },
+      productImage: {
+        imageId: ownership.productImage.image_id,
+      },
+      supplier: {
+        supplierId: ownership.supplier.supplier_id,
+      },
+      productItem: {
+        itemId: ownership.productItem.item_id,
       },
     },
   };

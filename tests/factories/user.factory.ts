@@ -4,7 +4,8 @@ export type FixtureRoleName =
   | "Customer"
   | "Admin"
   | "Staff"
-  | "WarehouseStaff";
+  | "WarehouseStaff"
+  | "UnknownTestRole";
 
 export async function ensureRole(
   prisma: PrismaClient,

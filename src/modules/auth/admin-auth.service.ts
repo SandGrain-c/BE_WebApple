@@ -1,5 +1,6 @@
 import bcrypt from "bcrypt";
-import jwt from "jsonwebtoken";
+// import jwt from "jsonwebtoken";
+import jwt, { type SignOptions } from "jsonwebtoken";
 
 import prisma from "../../utils/prisma";
 import { AdminLoginResponseDto } from "./admin-auth.dto";
@@ -65,16 +66,19 @@ export const loginAdmin = async (
   }
 
   // Payload JWT giữ cùng format với authMiddleware hiện tại
-  const accessToken = jwt.sign(
-    {
-      userId: user.user_id,
-      role: roleName,
-    },
-    jwtSecret,
-    {
-      expiresIn: process.env.JWT_EXPIRES_IN || "7d",
-    }
-  );
+const expiresIn: SignOptions["expiresIn"] =
+  (process.env.JWT_EXPIRES_IN || "7d") as SignOptions["expiresIn"];
+
+const accessToken = jwt.sign(
+  {
+    userId: user.user_id,
+    role: roleName,
+  },
+  jwtSecret,
+  {
+    expiresIn,
+  }
+);
 
   return {
     user: {

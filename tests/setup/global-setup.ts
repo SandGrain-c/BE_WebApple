@@ -162,7 +162,9 @@ export default async function globalSetup(project: TestProject) {
       `[test-foundation] fixture manifest=${JSON.stringify({
         customer_active: manifest.accounts.customer_active.userId,
         customer_locked: manifest.accounts.customer_locked.userId,
+        customer_b: manifest.accounts.customer_b.userId,
         admin_active: manifest.accounts.admin_active.userId,
+        admin_locked: manifest.accounts.admin_locked.userId,
         staff_active: manifest.accounts.staff_active.userId,
         warehouse_active: manifest.accounts.warehouse_active.userId,
         category_active: manifest.catalog.category_active.categoryId,

@@ -9,6 +9,7 @@
     "test:watch": "NODE_ENV=test vitest",
     "test:coverage": "NODE_ENV=test vitest run --coverage",
     "test:smoke": "NODE_ENV=test vitest run tests/api/smoke",
+    "test:auth": "NODE_ENV=test vitest run tests/api/auth tests/security/token-session.integration.test.ts",
     "dev": "ts-node-dev --respawn --transpile-only src/server.ts",
     "dev:customer": "tsx watch src/apps/customer/customer.server.ts",
     "dev:admin": "tsx watch src/apps/admin/admin.server.ts",

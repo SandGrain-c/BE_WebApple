@@ -7,6 +7,7 @@ import {
   ensureRole,
   type FixtureRoleName,
 } from "../factories/user.factory";
+import { AUTH_TEST_PASSWORD } from "../factories/auth.factory";
 import {
   FIXTURE_VERSION,
   type AccountFixture,
@@ -14,13 +15,26 @@ import {
 } from "./fixture-manifest";
 
 function toAccount(
-  user: { user_id: number; status: number },
+  user: {
+    user_id: number;
+    status: number;
+    user_name: string;
+    email: string | null;
+    phone: string | null;
+  },
   roleName: FixtureRoleName,
 ): AccountFixture {
+  if (!user.email || !user.phone) {
+    throw new Error(`Auth fixture ${user.user_name} requires email and phone`);
+  }
+
   return {
     userId: user.user_id,
     roleName,
     status: user.status,
+    userName: user.user_name,
+    email: user.email,
+    phone: user.phone,
   };
 }
 
@@ -49,7 +63,7 @@ export async function seedMinimalFixtures(
     return id;
   };
 
-  const passHash = await bcrypt.hash("FoundationOnly!2026", 6);
+  const passHash = await bcrypt.hash(AUTH_TEST_PASSWORD, 6);
 
   const customerActive = await createUserFixture(prisma, {
     roleId: roleId("Customer"),
@@ -69,6 +83,15 @@ export async function seedMinimalFixtures(
     passHash,
     status: 0,
   });
+  const customerB = await createUserFixture(prisma, {
+    roleId: roleId("Customer"),
+    userName: "tst_customer_b",
+    email: "customer-b@test.invalid",
+    phone: "0900000006",
+    fullName: "Test Customer B",
+    passHash,
+    status: 1,
+  });
   const adminActive = await createUserFixture(prisma, {
     roleId: roleId("Admin"),
     userName: "tst_admin",
@@ -77,6 +100,15 @@ export async function seedMinimalFixtures(
     fullName: "Test Admin Active",
     passHash,
     status: 1,
+  });
+  const adminLocked = await createUserFixture(prisma, {
+    roleId: roleId("Admin"),
+    userName: "tst_admin_locked",
+    email: "admin-locked@test.invalid",
+    phone: "0900000007",
+    fullName: "Test Admin Locked",
+    passHash,
+    status: 0,
   });
   const staffActive = await createUserFixture(prisma, {
     roleId: roleId("Staff"),
@@ -116,7 +148,9 @@ export async function seedMinimalFixtures(
     accounts: {
       customer_active: toAccount(customerActive, "Customer"),
       customer_locked: toAccount(customerLocked, "Customer"),
+      customer_b: toAccount(customerB, "Customer"),
       admin_active: toAccount(adminActive, "Admin"),
+      admin_locked: toAccount(adminLocked, "Admin"),
       staff_active: toAccount(staffActive, "Staff"),
       warehouse_active: toAccount(warehouseActive, "WarehouseStaff"),
     },

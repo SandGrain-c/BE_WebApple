@@ -67,16 +67,24 @@ const cartInclude = {
   },
 };
 
-const normalizeQuantity = (quantity?: number): number => {
-  if (quantity === undefined || quantity === null) return 1;
+const normalizeQuantity = (
+  quantity: unknown,
+  defaultWhenUndefined?: number,
+): number => {
+  if (quantity === undefined && defaultWhenUndefined !== undefined) {
+    return defaultWhenUndefined;
+  }
 
-  const numberValue = Number(quantity);
-
-  if (!Number.isInteger(numberValue) || numberValue <= 0) {
+  if (
+    typeof quantity !== "number" ||
+    !Number.isFinite(quantity) ||
+    !Number.isInteger(quantity) ||
+    quantity <= 0
+  ) {
     throw new CartServiceError("Số lượng sản phẩm không hợp lệ", 400);
   }
 
-  return numberValue;
+  return quantity;
 };
 
 export const getOrCreateCart = async (userId: number) => {
@@ -112,7 +120,7 @@ export const addCartItemService = async (
   userId: number,
   payload: AddCartItemPayload,
 ): Promise<CartResponseDto> => {
-  const quantity = normalizeQuantity(payload.quantity);
+  const quantity = normalizeQuantity(payload.quantity, 1);
 
   const productId = Number(payload.productId);
   const variantId = Number(payload.variantId);

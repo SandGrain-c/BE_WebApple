@@ -22,12 +22,17 @@ model audit_logs {
 }
 
 model banners {
-  banner_id  Int     @id(map: "pk_banners") @default(autoincrement())
-  title      String? @db.VarChar(100)
-  image_url  String? @db.VarChar(255)
-  target_url String? @db.VarChar(255)
-  position   String? @db.VarChar(50)
-  is_active  Boolean @default(true)
+  banner_id             Int     @id(map: "pk_banners") @default(autoincrement())
+  title                 String? @db.VarChar(100)
+
+  image_url             String? @db.VarChar(500)
+  cloudinary_public_id  String? @db.VarChar(255)
+
+  target_url            String? @db.VarChar(255)
+  position              String? @db.VarChar(50)
+  is_active             Boolean @default(true)
+
+  @@index([cloudinary_public_id], map: "ix_banners_cloudinary_public_id")
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
@@ -38,7 +43,7 @@ model cart_items {
   quantity         Int              @default(1)
   carts            carts            @relation(fields: [cart_id], references: [cart_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_cart_items_carts")
   product_variants product_variants @relation(fields: [variant_id], references: [variant_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_cart_items_variants")
-
+  selected Boolean @default(true)
   @@unique([cart_id, variant_id], map: "uq_cart_items_cart_variant")
 }
 
@@ -54,6 +59,11 @@ model categories {
   category_id   Int        @id(map: "pk_categories") @default(autoincrement())
   category_name String     @unique(map: "uq_categories_category_name") @db.VarChar(100)
   slug          String     @unique @db.VarChar(150)
+
+  description   String?    @db.VarChar(255)
+  display_order Int        @default(0)
+  is_active     Boolean    @default(true)
+
   products      products[]
 }
 
@@ -204,23 +214,27 @@ model payment_transactions {
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 model product_images {
-  image_id         Int               @id(map: "pk_product_images") @default(autoincrement())
-  product_id       Int
-  color            String            @db.VarChar(50)
-  image_url        String            @db.VarChar(500)
-  alt_text         String?           @db.VarChar(255)
-  is_thumbnail     Boolean           @default(false)
-  sort_order       Int               @default(0)
-  is_active        Boolean           @default(true)
-  created_at       DateTime          @default(now()) @db.Timestamp(6)
-  variant_id       Int?
-  product_variants product_variants? @relation(fields: [variant_id], references: [variant_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_product_images_product_variants")
-  products         products          @relation(fields: [product_id], references: [product_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_product_images_products")
+  image_id              Int               @id(map: "pk_product_images") @default(autoincrement())
+  product_id            Int
+  color                 String            @db.VarChar(50)
+
+  image_url             String            @db.VarChar(500)
+  cloudinary_public_id  String?           @db.VarChar(255)
+
+  alt_text              String?           @db.VarChar(255)
+  is_thumbnail          Boolean           @default(false)
+  sort_order            Int               @default(0)
+  is_active             Boolean           @default(true)
+  created_at            DateTime          @default(now()) @db.Timestamp(6)
+  variant_id            Int?
+
+  product_variants      product_variants? @relation(fields: [variant_id], references: [variant_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_product_images_product_variants")
+  products              products          @relation(fields: [product_id], references: [product_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_product_images_products")
 
   @@unique([product_id, color], map: "ux_product_images_one_thumbnail_per_color", where: raw("((is_thumbnail = true) AND (is_active = true))"))
   @@index([product_id, color, sort_order], map: "ix_product_images_product_color")
+  @@index([cloudinary_public_id], map: "ix_product_images_cloudinary_public_id")
 }
-
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 model product_items {
   item_id                   Int                        @id(map: "pk_product_items") @default(autoincrement())
@@ -242,37 +256,107 @@ model product_items {
 model product_variants {
   variant_id                Int                         @id(map: "pk_product_variants") @default(autoincrement())
   product_id                Int
+  variant_name              String?                     @db.VarChar(255)
   sku                       String                      @unique(map: "uq_product_variants_sku") @db.VarChar(50)
-  color                     String                      @db.VarChar(50)
-  capacity                  String                      @db.VarChar(20)
-  ram                       String                      @db.VarChar(20)
+  color                     String?                      @db.VarChar(50)
+  capacity                  String?                      @db.VarChar(20)
+  ram                       String?                      @db.VarChar(20)
   country                   String?                     @db.VarChar(20)
+
   price                     Decimal                     @db.Decimal(18, 2)
+  old_price                 Decimal?                    @db.Decimal(18, 2)
+  installment               String?                     @db.VarChar(100)
+  discount_label            String?                     @db.VarChar(50)
+
   stock_quantity            Int                         @default(0)
+
   cart_items                cart_items[]
   flash_sale_items          flash_sale_items[]
   inventory_receipt_details inventory_receipt_details[]
   order_details             order_details[]
   product_images            product_images[]
   product_items             product_items[]
+  product_promotions        product_promotions[]
+  product_specs             product_specs[]
+
   products                  products                    @relation(fields: [product_id], references: [product_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_product_variants_products")
 
-  @@unique([product_id, color, capacity, ram], map: "uq_product_variants_product_config")
 }
 
 model products {
-  product_id        Int                 @id(map: "pk_products") @default(autoincrement())
-  category_id       Int
-  name              String              @db.VarChar(255)
-  slug              String              @unique @db.VarChar(300)
-  description       String?
-  is_active         Boolean             @default(true)
-  created_at        DateTime            @default(now()) @db.Timestamp(6)
-  favorite_products favorite_products[]
-  product_images    product_images[]
-  product_variants  product_variants[]
-  categories        categories          @relation(fields: [category_id], references: [category_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_products_categories")
-  reviews           reviews[]
+  product_id          Int                 @id(map: "pk_products") @default(autoincrement())
+  category_id         Int
+  name                String              @db.VarChar(255)
+  slug                String              @unique @db.VarChar(300)
+  description         String?
+  is_active           Boolean             @default(true)
+  created_at          DateTime            @default(now()) @db.Timestamp(6)
+
+  favorite_products   favorite_products[]
+  product_images      product_images[]
+  product_variants    product_variants[]
+  product_promotions  product_promotions[]
+  product_spec_groups product_spec_groups[]
+  product_specs       product_specs[]
+
+  categories          categories          @relation(fields: [category_id], references: [category_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_products_categories")
+  reviews             reviews[]
+}
+
+model product_promotions {
+  promotion_id   Int      @id(map: "pk_product_promotions") @default(autoincrement())
+  product_id     Int
+  variant_id     Int?
+  promotion_text String   @db.VarChar(255)
+  sort_order     Int      @default(0)
+  is_active      Boolean  @default(true)
+  created_at     DateTime @default(now()) @db.Timestamp(6)
+
+  products         products          @relation(fields: [product_id], references: [product_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_product_promotions_products")
+  product_variants product_variants? @relation(fields: [variant_id], references: [variant_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_product_promotions_variants")
+
+  @@index([product_id, is_active], map: "ix_product_promotions_product_active")
+  @@index([variant_id, is_active], map: "ix_product_promotions_variant_active")
+}
+
+model product_spec_groups {
+  spec_group_id Int      @id(map: "pk_product_spec_groups") @default(autoincrement())
+  product_id    Int
+  group_name    String   @db.VarChar(100)
+  sort_order    Int      @default(0)
+  is_active     Boolean  @default(true)
+  created_at    DateTime @default(now()) @db.Timestamp(6)
+
+  products      products @relation(fields: [product_id], references: [product_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_product_spec_groups_products")
+  product_specs product_specs[]
+
+  @@index([product_id, sort_order], map: "ix_product_spec_groups_product_sort")
+}
+
+model product_specs {
+  spec_id       Int      @id(map: "pk_product_specs") @default(autoincrement())
+  product_id    Int
+  variant_id    Int?
+  spec_group_id Int?
+
+  spec_key      String   @db.VarChar(100)
+  spec_label    String   @db.VarChar(150)
+  spec_value    String   @db.VarChar(500)
+  unit          String?  @db.VarChar(50)
+
+  sort_order    Int      @default(0)
+  is_highlight  Boolean  @default(false)
+  is_filterable Boolean  @default(false)
+  is_active     Boolean  @default(true)
+  created_at    DateTime @default(now()) @db.Timestamp(6)
+
+  products            products             @relation(fields: [product_id], references: [product_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_product_specs_products")
+  product_variants    product_variants?    @relation(fields: [variant_id], references: [variant_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_product_specs_variants")
+  product_spec_groups product_spec_groups? @relation(fields: [spec_group_id], references: [spec_group_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_product_specs_groups")
+
+  @@index([product_id, is_active], map: "ix_product_specs_product_active")
+  @@index([variant_id, is_active], map: "ix_product_specs_variant_active")
+  @@index([spec_key], map: "ix_product_specs_spec_key")
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
@@ -287,7 +371,7 @@ model reviews {
   order_details   order_details? @relation(fields: [order_detail_id], references: [order_detail_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_reviews_order_details")
   products        products       @relation(fields: [product_id], references: [product_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_reviews_products")
   users           users          @relation(fields: [user_id], references: [user_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_reviews_users")
-
+  is_active Boolean @default(true)
   @@unique([user_id, order_detail_id], map: "ux_reviews_user_order_detail_not_null", where: raw("(order_detail_id IS NOT NULL)"))
 }
 

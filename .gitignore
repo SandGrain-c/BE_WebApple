@@ -3,3 +3,22 @@ node_modules
 .env
 
 /src/generated/prisma
+
+# Build and test artifacts
+dist/
+coverage/
+test-results/
+playwright-report/
+
+# Local editor and OS files
+.vscode/
+.DS_Store
+
+# Logs
+*.log
+
+# Test environment files
+.env.*
+!.env.example
+!.env.test.example
+launch.json

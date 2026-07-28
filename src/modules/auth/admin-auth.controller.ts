@@ -1,13 +1,36 @@
-import { Request, Response } from "express";
+import { NextFunction, Request, Response } from "express";
 
 import { AdminLoginBody } from "./admin-auth.dto";
-import { loginAdmin } from "./admin-auth.service";
+import {
+  AdminAuthError,
+  getCurrentAdminUser,
+  loginAdmin,
+} from "./admin-auth.service";
+
+const handleAdminAuthError = (
+  error: unknown,
+  res: Response,
+  next: NextFunction,
+) => {
+  if (error instanceof AdminAuthError) {
+    return res.status(error.statusCode).json({
+      success: false,
+      message: error.message,
+    });
+  }
+
+  return next(error);
+};
 
 /**
  * adminLoginController:
  * Nhận request login từ Admin FE và trả accessToken.
  */
-export const adminLoginController = async (req: Request, res: Response) => {
+export const adminLoginController = async (
+  req: Request,
+  res: Response,
+  next: NextFunction,
+) => {
   try {
     const { identifier, password } = req.body as AdminLoginBody;
 
@@ -19,13 +42,7 @@ export const adminLoginController = async (req: Request, res: Response) => {
       data,
     });
   } catch (error) {
-    const message =
-      error instanceof Error ? error.message : "Đăng nhập quản trị thất bại";
-
-    return res.status(400).json({
-      success: false,
-      message,
-    });
+    return handleAdminAuthError(error, res, next);
   }
 };
 
@@ -33,14 +50,29 @@ export const adminLoginController = async (req: Request, res: Response) => {
  * adminMeController:
  * Trả thông tin admin hiện tại từ token.
  */
-export const adminMeController = async (req: Request, res: Response) => {
-  const user = (req as any).user;
+export const adminMeController = async (
+  req: Request,
+  res: Response,
+  next: NextFunction,
+) => {
+  try {
+    if (!req.user) {
+      return res.status(401).json({
+        success: false,
+        message: "Bạn chưa đăng nhập",
+      });
+    }
 
-  return res.json({
-    success: true,
-    message: "Lấy thông tin admin thành công",
-    data: {
-      user,
-    },
-  });
+    const user = await getCurrentAdminUser(req.user.userId);
+
+    return res.json({
+      success: true,
+      message: "Lấy thông tin admin thành công",
+      data: {
+        user,
+      },
+    });
+  } catch (error) {
+    return handleAdminAuthError(error, res, next);
+  }
 };

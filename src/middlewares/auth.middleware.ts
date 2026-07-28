@@ -1,59 +1,87 @@
 import { Request, Response, NextFunction } from "express";
 import jwt from "jsonwebtoken";
 import { env } from "../config/env";
+import prisma from "../utils/prisma";
 
 type JwtPayload = {
   userId?: number;
   user_id?: number;
   id?: number;
-  role?: string;
 };
 
-export const authMiddleware = (
+const unauthorized = (res: Response, message: string) => {
+  return res.status(401).json({
+    success: false,
+    message,
+  });
+};
+
+export const authMiddleware = async (
   req: Request,
   res: Response,
   next: NextFunction,
 ) => {
+  const authHeader = req.headers.authorization;
+
+  if (!authHeader || !authHeader.startsWith("Bearer ")) {
+    return unauthorized(res, "Bạn chưa đăng nhập");
+  }
+
+  const token = authHeader.slice("Bearer ".length).trim();
+
+  if (!token) {
+    return unauthorized(res, "Token không hợp lệ");
+  }
+
+  if (!env.JWT_SECRET) {
+    return res.status(500).json({
+      success: false,
+      message: "Server chưa cấu hình JWT_SECRET",
+    });
+  }
+
+  let decoded: JwtPayload;
+
   try {
-    const authHeader = req.headers.authorization;
+    decoded = jwt.verify(token, env.JWT_SECRET) as JwtPayload;
+  } catch {
+    return unauthorized(res, "Token không hợp lệ hoặc đã hết hạn");
+  }
 
-    if (!authHeader || !authHeader.startsWith("Bearer ")) {
-      return res.status(401).json({
-        success: false,
-        message: "Bạn chưa đăng nhập",
-      });
+  const rawUserId = decoded.userId ?? decoded.user_id ?? decoded.id;
+  const userId = Number(rawUserId);
+
+  if (!Number.isInteger(userId) || userId <= 0) {
+    return unauthorized(res, "Token không hợp lệ");
+  }
+
+  try {
+    const currentUser = await prisma.users.findUnique({
+      where: {
+        user_id: userId,
+      },
+      select: {
+        user_id: true,
+        status: true,
+        roles: {
+          select: {
+            role_name: true,
+          },
+        },
+      },
+    });
+
+    if (!currentUser || currentUser.status !== 1) {
+      return unauthorized(res, "Tài khoản không tồn tại hoặc đã bị khóa");
     }
 
-    const token = authHeader.split(" ")[1];
-
-    if (!env.JWT_SECRET) {
-      return res.status(500).json({
-        success: false,
-        message: "Server chưa cấu hình JWT_SECRET",
-      });
-    }
-
-    const decoded = jwt.verify(token, env.JWT_SECRET) as JwtPayload;
-
-    const userId = decoded.userId ?? decoded.user_id ?? decoded.id;
-
-    if (!userId) {
-      return res.status(401).json({
-        success: false,
-        message: "Token không hợp lệ",
-      });
-    }
-
-    (req as any).user = {
-      userId,
-      role: decoded.role,
+    req.user = {
+      userId: currentUser.user_id,
+      role: currentUser.roles.role_name,
     };
 
-    next();
-  } catch {
-    return res.status(401).json({
-      success: false,
-      message: "Token không hợp lệ hoặc đã hết hạn",
-    });
+    return next();
+  } catch (error) {
+    return next(error);
   }
 };

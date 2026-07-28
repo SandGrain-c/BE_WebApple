@@ -2,7 +2,7 @@ import { NextFunction, Request, Response } from "express";
 
 export const requireRoles = (allowedRoles: readonly string[]) => {
   return (req: Request, res: Response, next: NextFunction) => {
-    const user = (req as any).user;
+    const user = req.user;
 
     if (!user) {
       return res.status(401).json({

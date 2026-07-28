@@ -1,4 +1,4 @@
-export const FIXTURE_VERSION = "backend-rbac-idor-v3";
+export const FIXTURE_VERSION = "backend-cart-address-v4";
 
 export type AccountFixture = {
   userId: number;
@@ -39,6 +39,33 @@ export type FixtureManifest = {
       variantId: number;
       sku: string;
       stockQuantity: number;
+      price: number;
+    };
+    product_secondary: {
+      productId: number;
+      slug: string;
+    };
+    variant_stock_1: {
+      variantId: number;
+      sku: string;
+      stockQuantity: number;
+      price: number;
+    };
+    variant_out_of_stock: {
+      variantId: number;
+      sku: string;
+      stockQuantity: number;
+      price: number;
+    };
+    product_inactive: {
+      productId: number;
+      slug: string;
+    };
+    variant_inactive_product: {
+      variantId: number;
+      sku: string;
+      stockQuantity: number;
+      price: number;
     };
   };
   ownership: {
@@ -50,6 +77,10 @@ export type FixtureManifest = {
       receiverName: string;
       receiverPhone: string;
       detailedAddress: string;
+      isDefault: boolean;
+    };
+    address_a_secondary: {
+      addressId: number;
       isDefault: boolean;
     };
     cart_item_a: {

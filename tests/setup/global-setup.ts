@@ -171,7 +171,16 @@ export default async function globalSetup(project: TestProject) {
         category_active: manifest.catalog.category_active.categoryId,
         product_active: manifest.catalog.product_active.productId,
         variant_stock_10: manifest.catalog.variant_stock_10.variantId,
+        product_secondary: manifest.catalog.product_secondary.productId,
+        variant_stock_1: manifest.catalog.variant_stock_1.variantId,
+        variant_out_of_stock:
+          manifest.catalog.variant_out_of_stock.variantId,
+        product_inactive: manifest.catalog.product_inactive.productId,
+        variant_inactive_product:
+          manifest.catalog.variant_inactive_product.variantId,
         address_a: manifest.ownership.address_a.addressId,
+        address_a_secondary:
+          manifest.ownership.address_a_secondary.addressId,
         address_b: manifest.ownership.address_b.addressId,
         cart_item_a: manifest.ownership.cart_item_a.cartItemId,
         cart_item_b: manifest.ownership.cart_item_b.cartItemId,

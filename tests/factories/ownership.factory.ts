@@ -31,6 +31,17 @@ export async function createOwnershipFixtures(
       is_default: true,
     },
   });
+  const addressASecondary = await prisma.user_addresses.create({
+    data: {
+      user_id: input.customerAId,
+      receiver_name: "Customer A Secondary Receiver",
+      receiver_phone: "0911000011",
+      detailed_address: "A secondary ownership address",
+      ward: "Test Ward A2",
+      city: "Test City",
+      is_default: false,
+    },
+  });
 
   const cartA = await prisma.carts.create({
     data: {
@@ -213,6 +224,7 @@ export async function createOwnershipFixtures(
 
   return {
     addressA,
+    addressASecondary,
     addressB,
     cartItemA,
     cartItemB,

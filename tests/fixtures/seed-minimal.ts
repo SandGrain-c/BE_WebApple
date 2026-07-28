@@ -151,8 +151,16 @@ export async function seedMinimalFixtures(
     branch: "Test Warehouse",
   });
 
-  const { category, product, variant } =
-    await createActiveCatalogFixture(prisma);
+  const {
+    category,
+    product,
+    variant,
+    secondaryProduct,
+    variantStockOne,
+    variantOutOfStock,
+    inactiveProduct,
+    inactiveProductVariant,
+  } = await createActiveCatalogFixture(prisma);
   const ownership = await createOwnershipFixtures(prisma, {
     customerAId: customerActive.user_id,
     customerBId: customerB.user_id,
@@ -188,6 +196,33 @@ export async function seedMinimalFixtures(
         variantId: variant.variant_id,
         sku: variant.sku,
         stockQuantity: variant.stock_quantity,
+        price: Number(variant.price),
+      },
+      product_secondary: {
+        productId: secondaryProduct.product_id,
+        slug: secondaryProduct.slug,
+      },
+      variant_stock_1: {
+        variantId: variantStockOne.variant_id,
+        sku: variantStockOne.sku,
+        stockQuantity: variantStockOne.stock_quantity,
+        price: Number(variantStockOne.price),
+      },
+      variant_out_of_stock: {
+        variantId: variantOutOfStock.variant_id,
+        sku: variantOutOfStock.sku,
+        stockQuantity: variantOutOfStock.stock_quantity,
+        price: Number(variantOutOfStock.price),
+      },
+      product_inactive: {
+        productId: inactiveProduct.product_id,
+        slug: inactiveProduct.slug,
+      },
+      variant_inactive_product: {
+        variantId: inactiveProductVariant.variant_id,
+        sku: inactiveProductVariant.sku,
+        stockQuantity: inactiveProductVariant.stock_quantity,
+        price: Number(inactiveProductVariant.price),
       },
     },
     ownership: {
@@ -200,6 +235,10 @@ export async function seedMinimalFixtures(
         receiverPhone: ownership.addressB.receiver_phone,
         detailedAddress: ownership.addressB.detailed_address,
         isDefault: ownership.addressB.is_default,
+      },
+      address_a_secondary: {
+        addressId: ownership.addressASecondary.address_id,
+        isDefault: ownership.addressASecondary.is_default,
       },
       cart_item_a: {
         cartItemId: ownership.cartItemA.cart_item_id,

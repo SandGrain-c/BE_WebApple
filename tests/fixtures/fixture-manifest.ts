@@ -1,4 +1,4 @@
-export const FIXTURE_VERSION = "backend-cart-address-v4";
+export const FIXTURE_VERSION = "backend-product-catalog-v6";
 
 export type AccountFixture = {
   userId: number;
@@ -66,6 +66,29 @@ export type FixtureManifest = {
       sku: string;
       stockQuantity: number;
       price: number;
+    };
+    product_catalog: {
+      categories: {
+        iphone: { categoryId: number; slug: string };
+        ipad: { categoryId: number; slug: string };
+        accessory: { categoryId: number; slug: string };
+      };
+      products: Array<{
+        key: string;
+        productId: number;
+        name: string;
+        slug: string;
+        categorySlug: string;
+        representativePrice: number;
+        createdAt: string;
+        sold: number;
+      }>;
+      inactiveProductId: number;
+      filterValues: {
+        color: string;
+        capacity: string;
+        ram: string;
+      };
     };
   };
   ownership: {

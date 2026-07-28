@@ -12,6 +12,7 @@
     "test:auth": "NODE_ENV=test vitest run tests/api/auth tests/security/token-session.integration.test.ts",
     "test:rbac-idor": "NODE_ENV=test vitest run tests/security/admin-rbac.integration.test.ts tests/security/authorization-ordering.integration.test.ts tests/security/customer-idor.integration.test.ts",
     "test:cart-address": "NODE_ENV=test vitest run tests/api/cart tests/api/address",
+    "test:catalog": "NODE_ENV=test vitest run tests/api/catalog",
     "test:security": "NODE_ENV=test vitest run tests/security",
     "dev": "ts-node-dev --respawn --transpile-only src/server.ts",
     "dev:customer": "tsx watch src/apps/customer/customer.server.ts",

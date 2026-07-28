@@ -178,6 +178,8 @@ export default async function globalSetup(project: TestProject) {
         product_inactive: manifest.catalog.product_inactive.productId,
         variant_inactive_product:
           manifest.catalog.variant_inactive_product.variantId,
+        catalog_product_count:
+          manifest.catalog.product_catalog.products.length,
         address_a: manifest.ownership.address_a.addressId,
         address_a_secondary:
           manifest.ownership.address_a_secondary.addressId,

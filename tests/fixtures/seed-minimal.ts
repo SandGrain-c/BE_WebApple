@@ -9,6 +9,7 @@ import {
 } from "../factories/user.factory";
 import { AUTH_TEST_PASSWORD } from "../factories/auth.factory";
 import { createOwnershipFixtures } from "../factories/ownership.factory";
+import { createProductCatalogFixture } from "../factories/product-catalog.factory";
 import {
   FIXTURE_VERSION,
   type AccountFixture,
@@ -161,6 +162,9 @@ export async function seedMinimalFixtures(
     inactiveProduct,
     inactiveProductVariant,
   } = await createActiveCatalogFixture(prisma);
+  const productCatalog = await createProductCatalogFixture(prisma, {
+    customerId: customerActive.user_id,
+  });
   const ownership = await createOwnershipFixtures(prisma, {
     customerAId: customerActive.user_id,
     customerBId: customerB.user_id,
@@ -223,6 +227,68 @@ export async function seedMinimalFixtures(
         sku: inactiveProductVariant.sku,
         stockQuantity: inactiveProductVariant.stock_quantity,
         price: Number(inactiveProductVariant.price),
+      },
+      product_catalog: {
+        categories: {
+          iphone: {
+            categoryId: productCatalog.categories.iphone.category_id,
+            slug: productCatalog.categories.iphone.slug,
+          },
+          ipad: {
+            categoryId: productCatalog.categories.ipad.category_id,
+            slug: productCatalog.categories.ipad.slug,
+          },
+          accessory: {
+            categoryId: productCatalog.categories.accessory.category_id,
+            slug: productCatalog.categories.accessory.slug,
+          },
+        },
+        products: productCatalog.products.map((catalogProduct, index) => {
+          const baseVariant = productCatalog.variants[index];
+          const key = catalogProduct.slug.replace("catalog-", "");
+          const representativePrice =
+            key === "alpha"
+              ? Math.min(
+                  Number(baseVariant.price),
+                  Number(productCatalog.alphaLowerPriceVariant.price),
+                )
+              : Number(baseVariant.price);
+          const soldByKey: Record<string, number> = {
+            alpha: 8,
+            bravo: 3,
+            charlie: 3,
+          };
+
+          return {
+            key,
+            productId: catalogProduct.product_id,
+            name: catalogProduct.name,
+            slug: catalogProduct.slug,
+            categorySlug:
+              key === "alpha" ||
+              key === "bravo" ||
+              key === "charlie" ||
+              key === "delta" ||
+              key === "echo" ||
+              key === "foxtrot"
+                ? productCatalog.categories.iphone.slug
+                : key === "golf" ||
+                    key === "hotel" ||
+                    key === "india" ||
+                    key === "juliett"
+                  ? productCatalog.categories.ipad.slug
+                  : productCatalog.categories.accessory.slug,
+            representativePrice,
+            createdAt: catalogProduct.created_at.toISOString(),
+            sold: soldByKey[key] ?? 0,
+          };
+        }),
+        inactiveProductId: productCatalog.inactiveProduct.product_id,
+        filterValues: {
+          color: "Catalog Black",
+          capacity: "128GB",
+          ram: "8GB",
+        },
       },
     },
     ownership: {

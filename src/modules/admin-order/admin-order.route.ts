@@ -17,13 +17,12 @@ const router = Router();
  * Admin Order Management:
  * - Admin: toàn quyền
  * - Staff/SaleStaff: xử lý đơn bán hàng
- * - WarehouseStaff: theo dõi xử lý kho/giao hàng
+ * - WarehouseStaff: cập nhật vận chuyển qua Shipment API
  */
 const orderManagerRoles = [
   "Admin",
   "Staff",
   "SaleStaff",
-  "WarehouseStaff",
 ];
 
 router.use(authMiddleware);

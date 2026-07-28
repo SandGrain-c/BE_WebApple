@@ -2,6 +2,7 @@
 
 import type { Request, Response } from "express";
 import {
+  CustomerPaymentAccessError,
   createAdminPaymentTransaction,
   getAdminPaymentTransactionById,
   getAdminPaymentTransactions,
@@ -16,11 +17,17 @@ function getErrorMessage(error: unknown) {
 
 function getActorId(req: Request) {
   // authMiddleware gắn user vào req sau khi verify JWT
-  return (req as any).user?.userId as number | undefined;
+  return req.user?.userId;
 }
 
 function getUserId(req: Request) {
-  return (req as any).user?.userId as number | undefined;
+  return req.user?.userId;
+}
+
+function getCustomerErrorStatus(error: unknown) {
+  return error instanceof CustomerPaymentAccessError
+    ? error.statusCode
+    : 400;
 }
 
 export async function getAdminPaymentTransactionsController(
@@ -147,7 +154,7 @@ export async function getCustomerPaymentTransactionsByOrderIdController(
       data,
     });
   } catch (error) {
-    return res.status(400).json({
+    return res.status(getCustomerErrorStatus(error)).json({
       success: false,
       message: getErrorMessage(error),
     });
@@ -177,7 +184,7 @@ export async function getCustomerPaymentTransactionByIdController(
       data,
     });
   } catch (error) {
-    return res.status(400).json({
+    return res.status(getCustomerErrorStatus(error)).json({
       success: false,
       message: getErrorMessage(error),
     });

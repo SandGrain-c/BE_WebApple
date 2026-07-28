@@ -15,21 +15,39 @@ import { requireRoles } from "../../middlewares/role.middleware";
 
 const router = Router();
 
-const variantManagerRoles = ["Admin", "Staff", "SaleStaff", "WarehouseStaff"];
+const variantReadRoles = ["Admin", "Staff", "WarehouseStaff"];
+const variantMutationRoles = ["Admin", "Staff"];
 
-/**
- * Tất cả Admin Variant API đều yêu cầu:
- * - Đã đăng nhập
- * - Có quyền quản lý sản phẩm/kho
- */
-router.use(authMiddleware);
-router.use(requireRoles(variantManagerRoles));
+router.get(
+  "/products/:productId/variants",
+  authMiddleware,
+  requireRoles(variantReadRoles),
+  getAdminVariantsByProductController,
+);
+router.post(
+  "/products/:productId/variants",
+  authMiddleware,
+  requireRoles(variantMutationRoles),
+  createAdminVariantController,
+);
 
-router.get("/products/:productId/variants", getAdminVariantsByProductController);
-router.post("/products/:productId/variants", createAdminVariantController);
-
-router.get("/variants/:variantId", getAdminVariantDetailController);
-router.patch("/variants/:variantId", updateAdminVariantController);
-router.delete("/variants/:variantId", deleteAdminVariantController);
+router.get(
+  "/variants/:variantId",
+  authMiddleware,
+  requireRoles(variantReadRoles),
+  getAdminVariantDetailController,
+);
+router.patch(
+  "/variants/:variantId",
+  authMiddleware,
+  requireRoles(variantMutationRoles),
+  updateAdminVariantController,
+);
+router.delete(
+  "/variants/:variantId",
+  authMiddleware,
+  requireRoles(variantMutationRoles),
+  deleteAdminVariantController,
+);
 
 export default router;

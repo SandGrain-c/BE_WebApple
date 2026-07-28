@@ -15,10 +15,9 @@ const router = Router();
 /**
  * Inventory API:
  * - Admin: toàn quyền
- * - Staff: có thể hỗ trợ quản lý kho
  * - WarehouseStaff: nhân viên kho
  */
-const inventoryManagerRoles = ["Admin", "Staff", "WarehouseStaff"];
+const inventoryManagerRoles = ["Admin", "WarehouseStaff"];
 
 router.use(authMiddleware);
 router.use(requireRoles(inventoryManagerRoles));

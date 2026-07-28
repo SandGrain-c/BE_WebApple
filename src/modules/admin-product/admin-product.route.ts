@@ -15,20 +15,38 @@ import { requireRoles } from "../../middlewares/role.middleware";
 
 const router = Router();
 
-const productManagerRoles = ["Admin", "Staff", "SaleStaff"];
+const productReadRoles = ["Admin", "Staff", "WarehouseStaff"];
+const productMutationRoles = ["Admin", "Staff"];
 
-/**
- * Tất cả Admin Product API đều yêu cầu:
- * - Đã đăng nhập
- * - Có role được phép quản lý sản phẩm
- */
-router.use(authMiddleware);
-router.use(requireRoles(productManagerRoles));
-
-router.get("/", getAdminProductsController);
-router.get("/:productId", getAdminProductDetailController);
-router.post("/", createAdminProductController);
-router.patch("/:productId", updateAdminProductController);
-router.delete("/:productId", deleteAdminProductController);
+router.get(
+  "/",
+  authMiddleware,
+  requireRoles(productReadRoles),
+  getAdminProductsController,
+);
+router.get(
+  "/:productId",
+  authMiddleware,
+  requireRoles(productReadRoles),
+  getAdminProductDetailController,
+);
+router.post(
+  "/",
+  authMiddleware,
+  requireRoles(productMutationRoles),
+  createAdminProductController,
+);
+router.patch(
+  "/:productId",
+  authMiddleware,
+  requireRoles(productMutationRoles),
+  updateAdminProductController,
+);
+router.delete(
+  "/:productId",
+  authMiddleware,
+  requireRoles(productMutationRoles),
+  deleteAdminProductController,
+);
 
 export default router;

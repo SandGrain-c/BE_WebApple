@@ -20,6 +20,15 @@ const SHIPMENT_STATUSES: ShipmentStatus[] = [
   "Cancelled",
 ];
 
+export class CustomerShipmentAccessError extends Error {
+  readonly statusCode: number;
+
+  constructor(message: string, statusCode: number) {
+    super(message);
+    this.statusCode = statusCode;
+  }
+}
+
 const VALID_SHIPMENT_TRANSITIONS: Record<ShipmentStatus, ShipmentStatus[]> = {
   Pending: ["Preparing", "Cancelled"],
   Preparing: ["Shipped", "Cancelled"],
@@ -653,7 +662,10 @@ export async function getCustomerShipmentByOrderId(orderId: number, userId: numb
   });
 
   if (!shipment) {
-    throw new Error("Không tìm thấy thông tin vận chuyển của đơn hàng");
+    throw new CustomerShipmentAccessError(
+      "Không tìm thấy thông tin vận chuyển của đơn hàng",
+      404,
+    );
   }
 
   return mapShipmentToDto(shipment);
@@ -676,7 +688,10 @@ export async function getCustomerShipmentById(shipmentId: number, userId: number
   });
 
   if (!shipment) {
-    throw new Error("Không tìm thấy thông tin vận chuyển");
+    throw new CustomerShipmentAccessError(
+      "Không tìm thấy thông tin vận chuyển",
+      404,
+    );
   }
 
   return mapShipmentToDto(shipment);

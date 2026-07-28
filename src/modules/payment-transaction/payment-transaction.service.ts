@@ -19,6 +19,15 @@ const PAYMENT_STATUSES: PaymentStatus[] = [
   "Cancelled",
 ];
 
+export class CustomerPaymentAccessError extends Error {
+  readonly statusCode: number;
+
+  constructor(message: string, statusCode: number) {
+    super(message);
+    this.statusCode = statusCode;
+  }
+}
+
 function normalizeText(value?: string | null) {
   // Chuẩn hóa chuỗi: bỏ khoảng trắng thừa
   return value?.trim() || null;
@@ -436,9 +445,26 @@ export async function getCustomerPaymentTransactionsByOrderId(
   validatePositiveId(orderId, "orderId");
   validatePositiveId(userId, "userId");
 
-  const transactions = await prisma.payment_transactions.findMany({
+  const ownedOrder = await prisma.orders.findFirst({
     where: {
       order_id: orderId,
+      user_id: userId,
+    },
+    select: {
+      order_id: true,
+    },
+  });
+
+  if (!ownedOrder) {
+    throw new CustomerPaymentAccessError(
+      "Không tìm thấy đơn hàng",
+      404,
+    );
+  }
+
+  const transactions = await prisma.payment_transactions.findMany({
+    where: {
+      order_id: ownedOrder.order_id,
       orders: {
         is: {
           user_id: userId,
@@ -474,7 +500,10 @@ export async function getCustomerPaymentTransactionById(
   });
 
   if (!transaction) {
-    throw new Error("Không tìm thấy giao dịch thanh toán");
+    throw new CustomerPaymentAccessError(
+      "Không tìm thấy giao dịch thanh toán",
+      404,
+    );
   }
 
   return mapPaymentTransactionToDto(transaction);

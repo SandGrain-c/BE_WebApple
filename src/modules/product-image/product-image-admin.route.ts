@@ -15,26 +15,23 @@ import { uploadImageMiddleware } from "../../middlewares/upload.middleware";
 
 const router = Router();
 
-const productImageManagerRoles = [
-  "Admin",
-  "Staff",
-  "SaleStaff",
-  "WarehouseStaff",
-];
+const productImageManagerRoles = ["Admin", "Staff"];
 
 /**
  * Product Image Admin API
  *
  * Dùng cho Admin FE quản lý ảnh sản phẩm.
  */
-router.use(authMiddleware);
-router.use(requireRoles(productImageManagerRoles));
-
 /**
  * GET /api/admin/products/:productId/images
  * Lấy danh sách ảnh sản phẩm cho admin.
  */
-router.get("/products/:productId/images", getProductImagesController);
+router.get(
+  "/products/:productId/images",
+  authMiddleware,
+  requireRoles(productImageManagerRoles),
+  getProductImagesController,
+);
 
 /**
  * POST /api/admin/products/:productId/images
@@ -42,6 +39,8 @@ router.get("/products/:productId/images", getProductImagesController);
  */
 router.post(
   "/products/:productId/images",
+  authMiddleware,
+  requireRoles(productImageManagerRoles),
   uploadImageMiddleware.single("file"),
   createProductImageController
 );
@@ -52,6 +51,8 @@ router.post(
  */
 router.patch(
   "/product-images/:imageId",
+  authMiddleware,
+  requireRoles(productImageManagerRoles),
   uploadImageMiddleware.single("file"),
   updateProductImageController
 );
@@ -62,6 +63,8 @@ router.patch(
  */
 router.patch(
   "/product-images/:imageId/thumbnail",
+  authMiddleware,
+  requireRoles(productImageManagerRoles),
   setProductImageThumbnailController
 );
 
@@ -69,7 +72,12 @@ router.patch(
  * DELETE /api/admin/product-images/:imageId
  * Xóa mềm ảnh sản phẩm.
  */
-router.delete("/product-images/:imageId", deleteProductImageController);
+router.delete(
+  "/product-images/:imageId",
+  authMiddleware,
+  requireRoles(productImageManagerRoles),
+  deleteProductImageController,
+);
 
 
 /**
@@ -87,6 +95,8 @@ router.delete("/product-images/:imageId", deleteProductImageController);
  */
 router.post(
     "/products/:productId/images/bulk",
+    authMiddleware,
+    requireRoles(productImageManagerRoles),
     uploadImageMiddleware.array("files", 10),
     createManyProductImagesController
   );

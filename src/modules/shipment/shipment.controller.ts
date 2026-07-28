@@ -2,6 +2,7 @@
 
 import type { Request, Response } from "express";
 import {
+  CustomerShipmentAccessError,
   cancelAdminShipment,
   createAdminShipment,
   getAdminShipmentById,
@@ -18,11 +19,17 @@ function getErrorMessage(error: unknown) {
 
 function getActorId(req: Request) {
   // user được authMiddleware gắn vào request sau khi verify JWT
-  return (req as any).user?.userId as number | undefined;
+  return req.user?.userId;
 }
 
 function getUserId(req: Request) {
-  return (req as any).user?.userId as number | undefined;
+  return req.user?.userId;
+}
+
+function getCustomerErrorStatus(error: unknown) {
+  return error instanceof CustomerShipmentAccessError
+    ? error.statusCode
+    : 400;
 }
 
 export async function getAdminShipmentsController(req: Request, res: Response) {
@@ -197,7 +204,7 @@ export async function getCustomerShipmentByOrderIdController(
       data,
     });
   } catch (error) {
-    return res.status(400).json({
+    return res.status(getCustomerErrorStatus(error)).json({
       success: false,
       message: getErrorMessage(error),
     });
@@ -227,7 +234,7 @@ export async function getCustomerShipmentByIdController(
       data,
     });
   } catch (error) {
-    return res.status(400).json({
+    return res.status(getCustomerErrorStatus(error)).json({
       success: false,
       message: getErrorMessage(error),
     });

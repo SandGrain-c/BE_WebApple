@@ -20,7 +20,7 @@ const router = Router();
 router.get(
   "/",
   authMiddleware,
-  requireRoles(["Admin", "Staff", "WarehouseStaff"]),
+  requireRoles(["Admin", "WarehouseStaff"]),
   getAdminProductItemsController
 );
 
@@ -31,7 +31,7 @@ router.get(
 router.get(
   "/:productItemId",
   authMiddleware,
-  requireRoles(["Admin", "Staff", "WarehouseStaff"]),
+  requireRoles(["Admin", "WarehouseStaff"]),
   getAdminProductItemDetailController
 );
 
@@ -42,7 +42,7 @@ router.get(
 router.post(
   "/",
   authMiddleware,
-  requireRoles(["Admin", "Staff", "WarehouseStaff"]),
+  requireRoles(["Admin", "WarehouseStaff"]),
   createAdminProductItemController
 );
 
@@ -53,7 +53,7 @@ router.post(
 router.patch(
   "/:productItemId",
   authMiddleware,
-  requireRoles(["Admin", "Staff", "WarehouseStaff"]),
+  requireRoles(["Admin", "WarehouseStaff"]),
   updateAdminProductItemController
 );
 
@@ -64,7 +64,7 @@ router.patch(
 router.delete(
   "/:productItemId",
   authMiddleware,
-  requireRoles(["Admin", "Staff", "WarehouseStaff"]),
+  requireRoles(["Admin", "WarehouseStaff"]),
   deleteAdminProductItemController
 );
 

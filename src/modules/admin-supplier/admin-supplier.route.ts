@@ -13,11 +13,11 @@ import {
 
 const router = Router();
 
-// Tất cả Supplier API đều yêu cầu đăng nhập admin/staff
+// Tất cả Supplier API đều yêu cầu đăng nhập.
 router.use(authMiddleware);
 
 // Authorization: phân quyền theo role
-router.use(requireRoles(["Admin", "Staff", "WarehouseStaff"]));
+router.use(requireRoles(["Admin", "WarehouseStaff"]));
 
 router.get("/", getAdminSuppliersController);
 router.get("/:supplierId", getAdminSupplierByIdController);

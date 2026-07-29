@@ -1,26 +1,14 @@
 // src/modules/product/product.service.ts
 
 import prisma from "../../utils/prisma";
+import { Prisma } from "../../generated/prisma/client";
 import type { ProductDetailResponseDto, ProductSearchSuggestQuery,
   ProductSearchSuggestResponseDto } from "./product.dto";
 import { mapProductCardItem, mapProductDetail, mapProductSearchSuggestToDto  } from "./product.mapper";
-
-type GetProductsQuery = {
-  category?: string;
-  color?: string;
-  capacity?: string;
-  ram?: string;
-  minPrice?: string;
-  maxPrice?: string;
-  sort?: string;
-  page?: string;
-  limit?: string;
-};
-
-const toNumber = (value: unknown, defaultValue: number) => {
-  const numberValue = Number(value);
-  return Number.isNaN(numberValue) || numberValue <= 0 ? defaultValue : numberValue;
-};
+import type {
+  CatalogSort,
+  ParsedCatalogQuery,
+} from "./product-catalog.query";
 
 const decimalToNumber = (value: unknown) => {
   if (value === null || value === undefined) return 0;
@@ -31,177 +19,248 @@ const unique = <T>(arr: T[]) => {
   return Array.from(new Set(arr.filter(Boolean)));
 };
 
-const getSortOrder = (sort?: string) => {
+type CatalogPageRow = {
+  productId: number;
+  sold: number;
+};
+
+type CatalogCountRow = {
+  totalItems: number;
+};
+
+const COMPLETED_ORDER_STATUS = "Completed";
+
+const getCatalogOrderBy = (sort: CatalogSort): Prisma.Sql => {
   switch (sort) {
     case "name_asc":
-      return { name: "asc" as const };
+      return Prisma.sql`catalog_rows.name ASC, catalog_rows.product_id ASC`;
 
     case "name_desc":
-      return { name: "desc" as const };
+      return Prisma.sql`catalog_rows.name DESC, catalog_rows.product_id ASC`;
 
     case "oldest":
-      return { created_at: "asc" as const };
+      return Prisma.sql`catalog_rows.created_at ASC, catalog_rows.product_id ASC`;
+
+    case "price_asc":
+      return Prisma.sql`catalog_rows.representative_price ASC, catalog_rows.product_id ASC`;
+
+    case "price_desc":
+      return Prisma.sql`catalog_rows.representative_price DESC, catalog_rows.product_id ASC`;
+
+    case "best_selling":
+      return Prisma.sql`catalog_rows.sold DESC, catalog_rows.product_id ASC`;
 
     case "newest":
     default:
-      return { created_at: "desc" as const };
+      return Prisma.sql`catalog_rows.created_at DESC, catalog_rows.product_id ASC`;
   }
 };
 
-export const getProductsService = async (query: GetProductsQuery) => {
-  const page = toNumber(query.page, 1);
-  const limit = toNumber(query.limit, 12);
-  const skip = (page - 1) * limit;
+const buildCatalogRows = (query: ParsedCatalogQuery): Prisma.Sql => {
+  const productConditions: Prisma.Sql[] = [
+    Prisma.sql`p.is_active = true`,
+  ];
 
-  const minPrice = query.minPrice ? Number(query.minPrice) : undefined;
-  const maxPrice = query.maxPrice ? Number(query.maxPrice) : undefined;
-  const shouldSortByBestSelling = query.sort === "best_selling";
-  const variantWhere: any = {};
+  if (query.categorySlug) {
+    productConditions.push(
+      Prisma.sql`LOWER(c.slug) = LOWER(${query.categorySlug})`,
+    );
+  }
+
+  if (query.search) {
+    productConditions.push(
+      Prisma.sql`p.name ILIKE ${`%${query.search}%`}`,
+    );
+  }
+
+  if (query.minPrice !== undefined) {
+    productConditions.push(
+      Prisma.sql`rp.representative_price >= ${query.minPrice}`,
+    );
+  }
+
+  if (query.maxPrice !== undefined) {
+    productConditions.push(
+      Prisma.sql`rp.representative_price <= ${query.maxPrice}`,
+    );
+  }
+
+  const variantConditions: Prisma.Sql[] = [
+    Prisma.sql`filter_variant.product_id = p.product_id`,
+  ];
 
   if (query.color) {
-    variantWhere.color = {
-      equals: query.color,
-      mode: "insensitive",
-    };
+    variantConditions.push(
+      Prisma.sql`LOWER(filter_variant.color) = LOWER(${query.color})`,
+    );
   }
 
   if (query.capacity) {
-    variantWhere.capacity = {
-      equals: query.capacity,
-      mode: "insensitive",
-    };
+    variantConditions.push(
+      Prisma.sql`LOWER(filter_variant.capacity) = LOWER(${query.capacity})`,
+    );
   }
 
   if (query.ram) {
-    variantWhere.ram = {
-      equals: query.ram,
-      mode: "insensitive",
-    };
+    variantConditions.push(
+      Prisma.sql`LOWER(filter_variant.ram) = LOWER(${query.ram})`,
+    );
   }
 
-  if (minPrice !== undefined || maxPrice !== undefined) {
-    variantWhere.price = {};
-
-    if (minPrice !== undefined && !Number.isNaN(minPrice)) {
-      variantWhere.price.gte = minPrice;
-    }
-
-    if (maxPrice !== undefined && !Number.isNaN(maxPrice)) {
-      variantWhere.price.lte = maxPrice;
-    }
+  if (variantConditions.length > 1) {
+    productConditions.push(
+      Prisma.sql`
+        EXISTS (
+          SELECT 1
+          FROM product_variants AS filter_variant
+          WHERE ${Prisma.join(variantConditions, " AND ")}
+        )
+      `,
+    );
   }
 
-  const productWhere: any = {
-    is_active: true,
-  };
+  return Prisma.sql`
+    SELECT
+      p.product_id,
+      p.name,
+      p.created_at,
+      rp.representative_price,
+      COALESCE(completed_sales.sold, 0)::int AS sold
+    FROM products AS p
+    JOIN categories AS c
+      ON c.category_id = p.category_id
+    JOIN (
+      SELECT
+        product_id,
+        MIN(price) AS representative_price
+      FROM product_variants
+      GROUP BY product_id
+    ) AS rp
+      ON rp.product_id = p.product_id
+    LEFT JOIN (
+      SELECT
+        sold_variant.product_id,
+        SUM(completed_detail.quantity) AS sold
+      FROM order_details AS completed_detail
+      JOIN orders AS completed_order
+        ON completed_order.order_id = completed_detail.order_id
+       AND completed_order.order_status = ${COMPLETED_ORDER_STATUS}
+      JOIN product_variants AS sold_variant
+        ON sold_variant.variant_id = completed_detail.variant_id
+      GROUP BY sold_variant.product_id
+    ) AS completed_sales
+      ON completed_sales.product_id = p.product_id
+    WHERE ${Prisma.join(productConditions, " AND ")}
+  `;
+};
 
-  if (query.category) {
-    productWhere.categories = {
-      slug: {
-        equals: query.category,
-        mode: "insensitive",
-      },
-    };
-  }
+export const getProductsService = async (query: ParsedCatalogQuery) => {
+  const skip = (query.page - 1) * query.limit;
+  const catalogRows = buildCatalogRows(query);
+  const orderBy = getCatalogOrderBy(query.sort);
 
-  if (Object.keys(variantWhere).length > 0) {
-    productWhere.product_variants = {
-      some: variantWhere,
-    };
-  }
+  const [pageRows, countRows] = await Promise.all([
+    prisma.$queryRaw<CatalogPageRow[]>(Prisma.sql`
+      WITH catalog_rows AS (${catalogRows})
+      SELECT
+        catalog_rows.product_id AS "productId",
+        catalog_rows.sold
+      FROM catalog_rows
+      ORDER BY ${orderBy}
+      OFFSET ${skip}
+      LIMIT ${query.limit}
+    `),
+    prisma.$queryRaw<CatalogCountRow[]>(Prisma.sql`
+      WITH catalog_rows AS (${catalogRows})
+      SELECT COUNT(*)::int AS "totalItems"
+      FROM catalog_rows
+    `),
+  ]);
 
-  const [products, totalItems] = await Promise.all([
-    prisma.products.findMany({
-      where: productWhere,
-      skip: shouldSortByBestSelling ? undefined : skip,
-take: shouldSortByBestSelling ? undefined : limit,
-orderBy: shouldSortByBestSelling
-  ? { created_at: "desc" }
-  : getSortOrder(query.sort),
-      include: {
-        categories: true,
-      
-        product_images: {
+  const pageProductIds = pageRows.map((row) => row.productId);
+  const products =
+    pageProductIds.length === 0
+      ? []
+      : await prisma.products.findMany({
           where: {
-            is_active: true,
+            product_id: {
+              in: pageProductIds,
+            },
           },
-          orderBy: [
-            { is_thumbnail: "desc" },
-            { sort_order: "asc" },
-            { image_id: "asc" },
-          ],
-        },
-      
-        product_promotions: {
-          where: {
-            is_active: true,
-          },
-          orderBy: [
-            { sort_order: "asc" },
-            { promotion_id: "asc" },
-          ],
-        },
-      
-        product_variants: {
-          orderBy: [
-            { price: "asc" },
-            { variant_id: "asc" },
-          ],
           include: {
+            categories: true,
+
             product_images: {
               where: {
                 is_active: true,
               },
               orderBy: [
+                { is_thumbnail: "desc" },
                 { sort_order: "asc" },
                 { image_id: "asc" },
               ],
             },
+
+            product_promotions: {
+              where: {
+                is_active: true,
+              },
+              orderBy: [
+                { sort_order: "asc" },
+                { promotion_id: "asc" },
+              ],
+            },
+
+            product_variants: {
+              orderBy: [
+                { price: "asc" },
+                { variant_id: "asc" },
+              ],
+              include: {
+                product_images: {
+                  where: {
+                    is_active: true,
+                  },
+                  orderBy: [
+                    { sort_order: "asc" },
+                    { image_id: "asc" },
+                  ],
+                },
+              },
+            },
           },
-        },
+        });
+
+  const productById = new Map(
+    products.map((product) => [product.product_id, product]),
+  );
+  const soldById = new Map(
+    pageRows.map((row) => [row.productId, Number(row.sold)]),
+  );
+  const formattedItems = pageProductIds.flatMap((productId) => {
+    const product = productById.get(productId);
+
+    if (!product) {
+      return [];
+    }
+
+    return [
+      {
+        ...mapProductCardItem(product),
+        sold: soldById.get(productId) ?? 0,
       },
-    }),
-
-    prisma.products.count({
-      where: productWhere,
-    }),
-  ]);
-  const soldRows = await prisma.$queryRaw<
-  {
-    productId: number;
-    sold: number;
-  }[]
->`
-  SELECT 
-    pv.product_id AS "productId",
-    COALESCE(SUM(od.quantity), 0)::int AS "sold"
-  FROM order_details od
-  JOIN orders o
-    ON o.order_id = od.order_id
-  JOIN product_variants pv
-    ON pv.variant_id = od.variant_id
-  WHERE o.order_status IN ('Confirmed', 'Processing', 'Shipping', 'Completed')
-  GROUP BY pv.product_id
-`;
-
-const soldMap = new Map(
-  soldRows.map((row) => [Number(row.productId), Number(row.sold)])
-);
-
-let formattedItems = products.map((product) => ({
-  ...mapProductCardItem(product),
-  sold: soldMap.get(product.product_id) ?? 0,
-}));
+    ];
+  });
 
   const filterVariants = await prisma.product_variants.findMany({
     where: {
       products: {
         is_active: true,
-        ...(query.category
+        ...(query.categorySlug
           ? {
               categories: {
                 slug: {
-                  equals: query.category,
+                  equals: query.categorySlug,
                   mode: "insensitive",
                 },
               },
@@ -218,14 +277,15 @@ let formattedItems = products.map((product) => ({
   });
 
   const prices = filterVariants.map((variant) => decimalToNumber(variant.price));
+  const totalItems = countRows[0]?.totalItems ?? 0;
 
   return {
     items: formattedItems,
     pagination: {
-      page,
-      limit,
+      page: query.page,
+      limit: query.limit,
       totalItems,
-      totalPages: Math.ceil(totalItems / limit),
+      totalPages: Math.ceil(totalItems / query.limit),
     },
     filters: {
       colors: unique(filterVariants.map((variant) => variant.color)),
@@ -560,6 +620,5 @@ export const getProductSearchSuggestService = async (
     items: products.map(mapProductSearchSuggestToDto),
   };
 };
-
 
 

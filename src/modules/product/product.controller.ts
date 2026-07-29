@@ -6,6 +6,10 @@ import {
   getProductDetailService,
   getProductSearchSuggestService
 } from "./product.service";
+import {
+  parseProductCatalogQuery,
+  ProductCatalogQueryError,
+} from "./product-catalog.query";
 
 export const getProductsController = async (
   req: Request,
@@ -13,7 +17,8 @@ export const getProductsController = async (
   next: NextFunction,
 ) => {
   try {
-    const data = await getProductsService(req.query as any);
+    const query = parseProductCatalogQuery(req.query);
+    const data = await getProductsService(query);
 
     return res.status(200).json({
       success: true,
@@ -21,6 +26,13 @@ export const getProductsController = async (
       data,
     });
   } catch (error) {
+    if (error instanceof ProductCatalogQueryError) {
+      return res.status(400).json({
+        success: false,
+        message: error.message,
+      });
+    }
+
     next(error);
   }
 };

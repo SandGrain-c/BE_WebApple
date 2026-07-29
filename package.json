@@ -16,6 +16,7 @@
     "test:checkout-cod": "NODE_ENV=test vitest run tests/api/voucher/voucher-validation.integration.test.ts tests/api/checkout/checkout-cod.integration.test.ts",
     "test:order-lifecycle": "NODE_ENV=test vitest run tests/api/order",
     "test:payment-integrity": "NODE_ENV=test vitest run tests/api/payment",
+    "test:inventory-serial": "NODE_ENV=test vitest run tests/api/inventory tests/api/warehouse",
     "test:security": "NODE_ENV=test vitest run tests/security",
     "dev": "ts-node-dev --respawn --transpile-only src/server.ts",
     "dev:customer": "tsx watch src/apps/customer/customer.server.ts",

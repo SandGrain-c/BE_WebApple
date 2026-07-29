@@ -66,7 +66,7 @@ export const getMyOrdersController = async (req: Request, res: Response) => {
   try {
     const userId = getUserIdFromRequest(req);
 
-    const data = await getMyOrdersService(userId);
+    const data = await getMyOrdersService(userId, req.query);
 
     return res.json({
       success: true,

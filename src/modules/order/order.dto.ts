@@ -43,6 +43,34 @@ export type CheckoutBody = {
   
   export type CustomerOrderListResponseDto = {
     items: CustomerOrderDto[];
+    pagination: {
+      page: number;
+      limit: number;
+      totalItems: number;
+      totalPages: number;
+    };
+  };
+
+  export type CustomerOrderStatus =
+    | "PendingPayment"
+    | "PendingConfirmation"
+    | "Confirmed"
+    | "Processing"
+    | "Shipping"
+    | "Completed"
+    | "Cancelled";
+
+  export type CustomerOrderSort =
+    | "newest"
+    | "oldest"
+    | "total_asc"
+    | "total_desc";
+
+  export type CustomerOrderListQuery = {
+    page: number;
+    limit: number;
+    status?: CustomerOrderStatus;
+    sort: CustomerOrderSort;
   };
 
   export type PaymentMethod = "COD" | "OnlineBanking";

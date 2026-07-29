@@ -4,7 +4,10 @@ import prisma from "../../utils/prisma";
 import {
   CheckoutBody,
   CustomerOrderDto,
+  CustomerOrderListQuery,
   CustomerOrderListResponseDto,
+  CustomerOrderSort,
+  CustomerOrderStatus,
 } from "./order.dto";
 import { mapOrderToDto } from "./order.mapper";
 import { validateVoucherForCheckout } from "../voucher/voucher.service";
@@ -58,6 +61,130 @@ const generateOrderCode = () => {
 
 const isRecord = (value: unknown): value is Record<string, unknown> => {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+};
+
+const CUSTOMER_ORDER_STATUSES: readonly CustomerOrderStatus[] = [
+  "PendingPayment",
+  "PendingConfirmation",
+  "Confirmed",
+  "Processing",
+  "Shipping",
+  "Completed",
+  "Cancelled",
+];
+const CUSTOMER_ORDER_SORTS: readonly CustomerOrderSort[] = [
+  "newest",
+  "oldest",
+  "total_asc",
+  "total_desc",
+];
+const DEFAULT_ORDER_PAGE = 1;
+const DEFAULT_ORDER_LIMIT = 10;
+const MAX_ORDER_LIMIT = 100;
+
+const isCustomerOrderStatus = (
+  value: string
+): value is CustomerOrderStatus =>
+  CUSTOMER_ORDER_STATUSES.some((status) => status === value);
+
+const isCustomerOrderSort = (value: string): value is CustomerOrderSort =>
+  CUSTOMER_ORDER_SORTS.some((sort) => sort === value);
+
+const parsePositiveIntegerQuery = (
+  value: unknown,
+  fieldName: string,
+  fallback: number,
+  maximum?: number
+) => {
+  if (value === undefined) {
+    return fallback;
+  }
+
+  if (typeof value !== "string" || !/^[1-9]\d*$/.test(value)) {
+    throw new OrderServiceError(`${fieldName} không hợp lệ`, 400);
+  }
+
+  const parsed = Number(value);
+
+  if (
+    !Number.isSafeInteger(parsed) ||
+    (maximum !== undefined && parsed > maximum)
+  ) {
+    throw new OrderServiceError(`${fieldName} không hợp lệ`, 400);
+  }
+
+  return parsed;
+};
+
+const parseCustomerOrderListQuery = (
+  value: unknown
+): CustomerOrderListQuery => {
+  if (!isRecord(value)) {
+    throw new OrderServiceError("Query không hợp lệ", 400);
+  }
+
+  const page = parsePositiveIntegerQuery(
+    value.page,
+    "page",
+    DEFAULT_ORDER_PAGE
+  );
+  const limit = parsePositiveIntegerQuery(
+    value.limit,
+    "limit",
+    DEFAULT_ORDER_LIMIT,
+    MAX_ORDER_LIMIT
+  );
+
+  let status: CustomerOrderStatus | undefined;
+
+  if (value.status !== undefined) {
+    if (
+      typeof value.status !== "string" ||
+      !isCustomerOrderStatus(value.status)
+    ) {
+      throw new OrderServiceError("Trạng thái đơn hàng không hợp lệ", 400);
+    }
+
+    status = value.status;
+  }
+
+  let sort: CustomerOrderSort = "newest";
+
+  if (value.sort !== undefined) {
+    if (typeof value.sort !== "string" || !isCustomerOrderSort(value.sort)) {
+      throw new OrderServiceError("Kiểu sắp xếp không hợp lệ", 400);
+    }
+
+    sort = value.sort;
+  }
+
+  return { page, limit, status, sort };
+};
+
+const getCustomerOrderBy = (sort: CustomerOrderSort) => {
+  switch (sort) {
+    case "oldest":
+      return [
+        { created_at: "asc" as const },
+        { order_id: "asc" as const },
+      ];
+    case "total_asc":
+      return [
+        { total_amount: "asc" as const },
+        { order_id: "asc" as const },
+      ];
+    case "total_desc":
+      return [
+        { total_amount: "desc" as const },
+        { order_id: "desc" as const },
+      ];
+    case "newest":
+    default:
+      return [
+        { created_at: "desc" as const },
+        { order_id: "desc" as const },
+      ];
+  }
 };
 
 const parseCheckoutBody = (value: unknown): CheckoutBody => {
@@ -438,22 +565,35 @@ export const checkoutService = async (
  * Lấy lịch sử đơn hàng của user hiện tại.
  */
 export const getMyOrdersService = async (
-  userId: number
+  userId: number,
+  rawQuery: unknown = {}
 ): Promise<CustomerOrderListResponseDto> => {
   validateUserId(userId);
+  const query = parseCustomerOrderListQuery(rawQuery);
+  const where = {
+    user_id: userId,
+    ...(query.status ? { order_status: query.status } : {}),
+  };
 
-  const orders = await prisma.orders.findMany({
-    where: {
-      user_id: userId,
-    },
-    orderBy: {
-      created_at: "desc",
-    },
-    include: orderInclude,
-  });
+  const [orders, totalItems] = await Promise.all([
+    prisma.orders.findMany({
+      where,
+      orderBy: getCustomerOrderBy(query.sort),
+      skip: (query.page - 1) * query.limit,
+      take: query.limit,
+      include: orderInclude,
+    }),
+    prisma.orders.count({ where }),
+  ]);
 
   return {
     items: orders.map(mapOrderToDto),
+    pagination: {
+      page: query.page,
+      limit: query.limit,
+      totalItems,
+      totalPages: Math.ceil(totalItems / query.limit),
+    },
   };
 };
 
@@ -524,6 +664,23 @@ export const cancelMyOrderService = async (
       throw new OrderServiceError("Đơn hàng hiện không thể hủy", 400);
     }
 
+    const cancelledAt = new Date();
+    const claimedOrder = await tx.orders.updateMany({
+      where: {
+        order_id: order.order_id,
+        user_id: userId,
+        order_status: order.order_status,
+      },
+      data: {
+        order_status: "Cancelled",
+        updated_at: cancelledAt,
+      },
+    });
+
+    if (claimedOrder.count !== 1) {
+      throw new OrderServiceError("Đơn hàng hiện không thể hủy", 400);
+    }
+
     /**
      * Hoàn lại tồn kho cho các variant trong đơn.
      */
@@ -567,6 +724,50 @@ export const cancelMyOrderService = async (
       });
     }
 
+    await tx.payment_transactions.updateMany({
+      where: {
+        order_id: order.order_id,
+        payment_type: "Payment",
+        status: "Pending",
+      },
+      data: {
+        status: "Cancelled",
+        updated_at: cancelledAt,
+      },
+    });
+
+    const activeShipments = await tx.shipments.findMany({
+      where: {
+        order_id: order.order_id,
+        status: {
+          notIn: ["Cancelled", "Delivered"],
+        },
+      },
+      select: {
+        shipment_id: true,
+      },
+    });
+
+    for (const shipment of activeShipments) {
+      await tx.shipments.update({
+        where: {
+          shipment_id: shipment.shipment_id,
+        },
+        data: {
+          status: "Cancelled",
+        },
+      });
+
+      await tx.shipment_status_history.create({
+        data: {
+          shipment_id: shipment.shipment_id,
+          status: "Cancelled",
+          location: null,
+          note: "Đơn hàng đã bị khách hàng hủy",
+        },
+      });
+    }
+
     await tx.order_status_history.create({
       data: {
         order_id: order.order_id,
@@ -574,16 +775,6 @@ export const cancelMyOrderService = async (
         new_status: "Cancelled",
         changed_by: userId,
         note: "Khách hàng hủy đơn hàng",
-      },
-    });
-
-    await tx.orders.update({
-      where: {
-        order_id: order.order_id,
-      },
-      data: {
-        order_status: "Cancelled",
-        updated_at: new Date(),
       },
     });
 

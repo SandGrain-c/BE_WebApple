@@ -9,27 +9,34 @@ import {
   getMyOrdersService,
   OrderServiceError,
 } from "./order.service";
-import { CheckoutBody } from "./order.dto";
+import { VoucherServiceError } from "../voucher/voucher.service";
 
 /**
  * Lấy userId từ authMiddleware.
  */
 const getUserIdFromRequest = (req: Request) => {
-  return Number((req as any).user?.userId);
+  return req.user?.userId ?? Number.NaN;
 };
 
 /**
  * Xử lý lỗi chung cho Order Controller.
  */
 const handleOrderError = (res: Response, error: unknown) => {
-  const statusCode = error instanceof OrderServiceError ? error.statusCode : 500;
+  if (
+    error instanceof OrderServiceError ||
+    error instanceof VoucherServiceError
+  ) {
+    return res.status(error.statusCode).json({
+      success: false,
+      message: error.message,
+    });
+  }
 
-  const message =
-    error instanceof Error ? error.message : "Xử lý đơn hàng thất bại";
+  console.error("[order] unexpected processing error", error);
 
-  return res.status(statusCode).json({
+  return res.status(500).json({
     success: false,
-    message,
+    message: "Xử lý đơn hàng thất bại",
   });
 };
 
@@ -40,7 +47,7 @@ export const checkoutController = async (req: Request, res: Response) => {
   try {
     const userId = getUserIdFromRequest(req);
 
-    const data = await checkoutService(userId, req.body as CheckoutBody);
+    const data = await checkoutService(userId, req.body);
 
     return res.status(201).json({
       success: true,

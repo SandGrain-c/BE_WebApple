@@ -5,22 +5,24 @@ import {
   validateVoucherService,
   VoucherServiceError,
 } from "./voucher.service";
-import { ValidateVoucherBody } from "./voucher.dto";
 
 const getUserIdFromRequest = (req: Request) => {
-  return Number((req as any).user?.userId);
+  return req.user?.userId ?? Number.NaN;
 };
 
 const handleVoucherError = (res: Response, error: unknown) => {
-  const statusCode =
-    error instanceof VoucherServiceError ? error.statusCode : 500;
+  if (error instanceof VoucherServiceError) {
+    return res.status(error.statusCode).json({
+      success: false,
+      message: error.message,
+    });
+  }
 
-  const message =
-    error instanceof Error ? error.message : "Xử lý voucher thất bại";
+  console.error("[voucher] unexpected validation error", error);
 
-  return res.status(statusCode).json({
+  return res.status(500).json({
     success: false,
-    message,
+    message: "Xử lý voucher thất bại",
   });
 };
 
@@ -55,10 +57,7 @@ export const validateVoucherController = async (
   try {
     const userId = getUserIdFromRequest(req);
 
-    const data = await validateVoucherService(
-      userId,
-      req.body as ValidateVoucherBody
-    );
+    const data = await validateVoucherService(userId, req.body);
 
     return res.json({
       success: true,

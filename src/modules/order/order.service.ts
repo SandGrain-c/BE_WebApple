@@ -56,6 +56,52 @@ const generateOrderCode = () => {
   return `ORD-${timestamp}-${random}`;
 };
 
+const isRecord = (value: unknown): value is Record<string, unknown> => {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+};
+
+const parseCheckoutBody = (value: unknown): CheckoutBody => {
+  if (!isRecord(value)) {
+    throw new OrderServiceError("Dữ liệu đặt hàng không hợp lệ", 400);
+  }
+
+  const addressId = value.addressId;
+
+  if (
+    typeof addressId !== "number" ||
+    !Number.isFinite(addressId) ||
+    !Number.isInteger(addressId) ||
+    addressId <= 0
+  ) {
+    throw new OrderServiceError("Vui lòng chọn địa chỉ nhận hàng", 400);
+  }
+
+  const paymentMethod = value.paymentMethod;
+
+  if (
+    paymentMethod !== undefined &&
+    paymentMethod !== "COD" &&
+    paymentMethod !== "OnlineBanking"
+  ) {
+    throw new OrderServiceError("Phương thức thanh toán không hợp lệ", 400);
+  }
+
+  const voucherCode = value.voucherCode;
+
+  if (
+    voucherCode !== undefined &&
+    (typeof voucherCode !== "string" || voucherCode.trim().length === 0)
+  ) {
+    throw new OrderServiceError("Mã giảm giá không hợp lệ", 400);
+  }
+
+  return {
+    addressId,
+    voucherCode,
+    paymentMethod,
+  };
+};
+
 /**
  * Lấy userId từ authMiddleware.
  */
@@ -71,12 +117,13 @@ const validateUserId = (userId: number) => {
  */
 export const checkoutService = async (
   userId: number,
-  body: CheckoutBody
+  requestBody: unknown
 ): Promise<{
   order: CustomerOrderDto;
   payment: any | null;
 }> => {
   validateUserId(userId);
+  const body = parseCheckoutBody(requestBody);
 
   /**
    * paymentMethod:
@@ -84,25 +131,8 @@ export const checkoutService = async (
    * - OnlineBanking: thanh toán online qua PayOS/VietQR
    */
   const paymentMethod = body.paymentMethod ?? "COD";
-
-  if (!["COD", "OnlineBanking"].includes(paymentMethod)) {
-    throw new OrderServiceError("Phương thức thanh toán không hợp lệ", 400);
-  }
-
-  const addressId = Number(body.addressId);
-
-if (!addressId || Number.isNaN(addressId)) {
-  throw new OrderServiceError("Vui lòng chọn địa chỉ nhận hàng", 400);
-}
-
-  const shippingFee =
-    body.shippingFee === undefined || body.shippingFee === null
-      ? 0
-      : Number(body.shippingFee);
-
-  if (Number.isNaN(shippingFee) || shippingFee < 0) {
-    throw new OrderServiceError("Phí vận chuyển không hợp lệ", 400);
-  }
+  const addressId = body.addressId;
+  const shippingFee = 0;
 
   /**
    * COD:

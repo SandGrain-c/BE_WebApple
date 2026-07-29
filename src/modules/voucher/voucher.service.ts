@@ -1,4 +1,5 @@
 import prisma from "../../utils/prisma";
+import type { Prisma } from "../../generated/prisma/client";
 import { ValidateVoucherBody, ValidateVoucherResultDto } from "./voucher.dto";
 import { mapVoucherToDto } from "./voucher.mapper";
 
@@ -11,9 +12,38 @@ export class VoucherServiceError extends Error {
   }
 }
 
-const normalizeCode = (code?: string | null) => {
-  const text = code?.trim().toUpperCase();
-  return text || null;
+const normalizeCode = (code: unknown) => {
+  if (typeof code !== "string" || code.trim().length === 0) {
+    throw new VoucherServiceError("Vui lòng nhập mã giảm giá", 400);
+  }
+
+  return code.trim().toUpperCase();
+};
+
+const isRecord = (value: unknown): value is Record<string, unknown> => {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+};
+
+const parseValidateVoucherBody = (value: unknown): ValidateVoucherBody => {
+  if (!isRecord(value)) {
+    throw new VoucherServiceError("Dữ liệu voucher không hợp lệ", 400);
+  }
+
+  const code = normalizeCode(value.code);
+  const subTotal = value.subTotal;
+
+  if (
+    typeof subTotal !== "number" ||
+    !Number.isFinite(subTotal) ||
+    subTotal < 0
+  ) {
+    throw new VoucherServiceError("Tổng tiền hàng không hợp lệ", 400);
+  }
+
+  return {
+    code,
+    subTotal,
+  };
 };
 
 const toNumber = (value: unknown): number => {
@@ -71,10 +101,10 @@ export const calculateVoucherDiscount = (voucher: any, subTotal: number) => {
  * tx là Prisma transaction client.
  */
 export const validateVoucherForCheckout = async (
-  tx: any,
+  tx: Prisma.TransactionClient,
   params: {
     userId: number;
-    code: string;
+    code: unknown;
     subTotal: number;
   }
 ) => {
@@ -154,6 +184,67 @@ export const validateVoucherForCheckout = async (
     discountAmount,
     totalAfterDiscount: params.subTotal - discountAmount,
   };
+};
+
+const getSelectedCartSubTotal = async (
+  tx: Prisma.TransactionClient,
+  userId: number,
+): Promise<number | null> => {
+  const cart = await tx.carts.findUnique({
+    where: {
+      user_id: userId,
+    },
+    select: {
+      cart_items: {
+        where: {
+          selected: true,
+        },
+        select: {
+          quantity: true,
+          product_variants: {
+            select: {
+              price: true,
+              stock_quantity: true,
+              products: {
+                select: {
+                  is_active: true,
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+  });
+
+  if (!cart || cart.cart_items.length === 0) {
+    return null;
+  }
+
+  let subTotal = 0;
+
+  for (const item of cart.cart_items) {
+    const variant = item.product_variants;
+
+    if (!variant.products.is_active) {
+      throw new VoucherServiceError(
+        "Giỏ hàng có sản phẩm hiện không còn hoạt động",
+        400,
+      );
+    }
+
+    if (!Number.isInteger(item.quantity) || item.quantity <= 0) {
+      throw new VoucherServiceError("Số lượng sản phẩm không hợp lệ", 400);
+    }
+
+    if (variant.stock_quantity < item.quantity) {
+      throw new VoucherServiceError("Giỏ hàng có sản phẩm không đủ tồn kho", 400);
+    }
+
+    subTotal += Number(variant.price) * item.quantity;
+  }
+
+  return subTotal;
 };
 
 /**
@@ -244,21 +335,28 @@ export const getAvailableVouchersService = async (
  */
 export const validateVoucherService = async (
   userId: number,
-  body: ValidateVoucherBody
+  body: unknown
 ): Promise<ValidateVoucherResultDto> => {
-  const subTotal = Number(body.subTotal);
+  const parsedBody = parseValidateVoucherBody(body);
 
   const result = await prisma.$transaction(async (tx) => {
-    return validateVoucherForCheckout(tx, {
+    const selectedCartSubTotal = await getSelectedCartSubTotal(tx, userId);
+    const subTotal = selectedCartSubTotal ?? parsedBody.subTotal;
+    const voucherResult = await validateVoucherForCheckout(tx, {
       userId,
-      code: body.code,
+      code: parsedBody.code,
       subTotal,
     });
+
+    return {
+      ...voucherResult,
+      subTotal,
+    };
   });
 
   return {
     voucher: mapVoucherToDto(result.voucher),
-    subTotal,
+    subTotal: result.subTotal,
     discountAmount: result.discountAmount,
     totalAfterDiscount: result.totalAfterDiscount,
   };

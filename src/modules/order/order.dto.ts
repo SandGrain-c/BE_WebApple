@@ -2,7 +2,6 @@
 
 export type CheckoutBody = {
   addressId: number;
-  shippingFee?: number;
   voucherCode?: string;
   paymentMethod?: "COD" | "OnlineBanking";
 };

@@ -37,6 +37,11 @@ export type PaymentTransactionDto = {
   order?: PaymentOrderSummaryDto;
 };
 
+export type CustomerPaymentTransactionDto = Omit<
+  PaymentTransactionDto,
+  "gatewayResponse"
+>;
+
 export type AdminPaymentTransactionListQueryDto = {
   search?: string;
   orderId?: number;

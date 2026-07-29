@@ -5,14 +5,43 @@ import {
   createPayOSPaymentLinkForOrder,
   getPayOSPaymentStatus,
   handlePayOSWebhook,
+  PayOSPaymentError,
 } from "./payos-payment.service";
 
-function getErrorMessage(error: unknown) {
-  return error instanceof Error ? error.message : "Đã xảy ra lỗi hệ thống";
+function getUserId(req: Request) {
+  return req.user?.userId;
 }
 
-function getUserId(req: Request) {
-  return (req as any).user?.userId as number | undefined;
+function parsePositiveIntegerPath(value: string | string[] | undefined) {
+  if (typeof value !== "string" || !/^[1-9]\d*$/.test(value)) {
+    return null;
+  }
+
+  const parsed = Number(value);
+  return Number.isSafeInteger(parsed) ? parsed : null;
+}
+
+function handlePayOSError(
+  res: Response,
+  error: unknown,
+  context: "initialization" | "status" | "webhook",
+) {
+  if (error instanceof PayOSPaymentError) {
+    return res.status(error.statusCode).json({
+      success: false,
+      message: error.message,
+    });
+  }
+
+  console.error("[payos] unexpected processing error", {
+    context,
+    errorName: error instanceof Error ? error.name : "UnknownError",
+  });
+
+  return res.status(500).json({
+    success: false,
+    message: "Xử lý thanh toán thất bại",
+  });
 }
 
 /**
@@ -32,9 +61,9 @@ export async function createPayOSPaymentLinkController(
       });
     }
 
-    const orderId = Number(req.params.orderId);
+    const orderId = parsePositiveIntegerPath(req.params.orderId);
 
-    if (!orderId || orderId <= 0) {
+    if (orderId === null) {
       return res.status(400).json({
         success: false,
         message: "Mã đơn hàng không hợp lệ",
@@ -49,10 +78,7 @@ export async function createPayOSPaymentLinkController(
       data,
     });
   } catch (error) {
-    return res.status(400).json({
-      success: false,
-      message: getErrorMessage(error),
-    });
+    return handlePayOSError(res, error, "initialization");
   }
 }
 
@@ -74,28 +100,12 @@ export async function payOSWebhookHealthController(
  * Webhook PayOS.
  * Webhook là request PayOS gọi ngược về BE để báo thanh toán thành công/thất bại.
  *
- * Lưu ý:
- * - Route này KHÔNG được dùng authMiddleware.
- * - PayOS dashboard/Postman có thể gửi body rỗng hoặc body test.
- * - Body rỗng/test thì trả 200 để dashboard xác nhận URL đang sống.
- * - Webhook thật mới gọi handlePayOSWebhook để verify và update DB.
+ * Route này không dùng JWT. Mọi business callback phải được PayOS signature
+ * verification xác thực trước khi service đọc hoặc mutate payment state.
  */
 export async function payOSWebhookController(req: Request, res: Response) {
-  console.log("PAYOS WEBHOOK BODY:", JSON.stringify(req.body, null, 2));
-
   try {
-    const body = req.body;
-
-    if (!body || Object.keys(body).length === 0 || body.test === true) {
-      return res.status(200).json({
-        success: true,
-        message: "PayOS webhook endpoint is active",
-      });
-    }
-
-    const data = await handlePayOSWebhook(body, req.ip);
-
-    console.log("PAYOS WEBHOOK HANDLED:", data);
+    const data = await handlePayOSWebhook(req.body, req.ip);
 
     return res.status(200).json({
       success: true,
@@ -103,41 +113,7 @@ export async function payOSWebhookController(req: Request, res: Response) {
       data,
     });
   } catch (error) {
-    console.error("PAYOS WEBHOOK ERROR:", error);
-
-    const body = req.body;
-    const message = getErrorMessage(error);
-
-    /**
-     * PayOS dashboard thường gửi webhook mẫu với orderCode = 123.
-     * Đây không phải đơn thật trong DB.
-     * Trả 200 để dashboard xác nhận URL hoạt động, nhưng không update DB.
-     */
-    const isPayOSWebhookShape =
-      body &&
-      typeof body === "object" &&
-      "code" in body &&
-      "desc" in body &&
-      "data" in body &&
-      "signature" in body;
-
-    const isDashboardTestWebhook =
-      isPayOSWebhookShape &&
-      Number(body?.data?.orderCode) === 123 &&
-      Number(body?.data?.amount) === 3000 &&
-      body?.data?.reference === "TF230204212323";
-
-    if (isDashboardTestWebhook) {
-      return res.status(200).json({
-        success: true,
-        message: "PayOS dashboard webhook test received",
-      });
-    }
-
-    return res.status(400).json({
-      success: false,
-      message,
-    });
+    return handlePayOSError(res, error, "webhook");
   }
 }
 
@@ -158,9 +134,9 @@ export async function getPayOSPaymentStatusController(
       });
     }
 
-    const orderId = Number(req.params.orderId);
+    const orderId = parsePositiveIntegerPath(req.params.orderId);
 
-    if (!orderId || orderId <= 0) {
+    if (orderId === null) {
       return res.status(400).json({
         success: false,
         message: "Mã đơn hàng không hợp lệ",
@@ -175,9 +151,6 @@ export async function getPayOSPaymentStatusController(
       data,
     });
   } catch (error) {
-    return res.status(400).json({
-      success: false,
-      message: getErrorMessage(error),
-    });
+    return handlePayOSError(res, error, "status");
   }
 }

@@ -8,7 +8,10 @@ import type {
   PaymentType,
   UpdatePaymentTransactionStatusDto,
 } from "./payment-transaction.dto";
-import { mapPaymentTransactionToDto } from "./payment-transaction.mapper";
+import {
+  mapCustomerPaymentTransactionToDto,
+  mapPaymentTransactionToDto,
+} from "./payment-transaction.mapper";
 
 const PAYMENT_TYPES: PaymentType[] = ["Payment", "Refund"];
 
@@ -477,7 +480,7 @@ export async function getCustomerPaymentTransactionsByOrderId(
     include: getPaymentInclude(),
   });
 
-  return transactions.map(mapPaymentTransactionToDto);
+  return transactions.map(mapCustomerPaymentTransactionToDto);
 }
 
 export async function getCustomerPaymentTransactionById(
@@ -506,5 +509,5 @@ export async function getCustomerPaymentTransactionById(
     );
   }
 
-  return mapPaymentTransactionToDto(transaction);
+  return mapCustomerPaymentTransactionToDto(transaction);
 }

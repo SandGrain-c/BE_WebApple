@@ -1,6 +1,7 @@
 // src/modules/payment-transaction/payment-transaction.mapper.ts
 
 import type {
+    CustomerPaymentTransactionDto,
     PaymentOrderSummaryDto,
     PaymentTransactionDto,
   } from "./payment-transaction.dto";
@@ -45,4 +46,13 @@ import type {
       updatedAt: toIsoString(transaction.updated_at),
       order: transaction.orders ? mapPaymentOrderToDto(transaction.orders) : undefined,
     };
+  }
+
+  export function mapCustomerPaymentTransactionToDto(
+    transaction: unknown
+  ): CustomerPaymentTransactionDto {
+    const { gatewayResponse: _gatewayResponse, ...customerTransaction } =
+      mapPaymentTransactionToDto(transaction);
+
+    return customerTransaction;
   }

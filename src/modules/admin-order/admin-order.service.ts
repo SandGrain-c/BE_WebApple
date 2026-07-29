@@ -1,6 +1,7 @@
 // src/modules/admin-order/admin-order.service.ts
 
 import prisma from "../../utils/prisma";
+import type { Prisma } from "../../generated/prisma/client";
 import {
   AdminOrderDto,
   AdminOrderListResponseDto,
@@ -31,7 +32,7 @@ const ORDER_STATUSES = [
   "Shipping",
   "Completed",
   "Cancelled",
-];
+] as const;
 
 /**
  * Luồng chuyển trạng thái hợp lệ của đơn hàng.
@@ -91,13 +92,52 @@ const normalizeText = (value?: string | null) => {
   return text ? text : null;
 };
 
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+
 /**
  * Kiểm tra trạng thái có hợp lệ không.
  */
 const ensureValidOrderStatus = (status: string) => {
-  if (!ORDER_STATUSES.includes(status)) {
+  if (!ORDER_STATUSES.some((allowedStatus) => allowedStatus === status)) {
     throw new AdminOrderServiceError("Trạng thái đơn hàng không hợp lệ", 400);
   }
+};
+
+const parseUpdateAdminOrderStatusBody = (
+  value: unknown
+): UpdateAdminOrderStatusBody => {
+  if (!isRecord(value)) {
+    throw new AdminOrderServiceError(
+      "Dữ liệu cập nhật trạng thái không hợp lệ",
+      400
+    );
+  }
+
+  if (typeof value.status !== "string") {
+    throw new AdminOrderServiceError("Trạng thái đơn hàng không hợp lệ", 400);
+  }
+
+  const status = value.status.trim();
+
+  if (!status) {
+    throw new AdminOrderServiceError("Vui lòng chọn trạng thái mới", 400);
+  }
+
+  ensureValidOrderStatus(status);
+
+  if (
+    value.note !== undefined &&
+    value.note !== null &&
+    typeof value.note !== "string"
+  ) {
+    throw new AdminOrderServiceError("Ghi chú không hợp lệ", 400);
+  }
+
+  return {
+    status,
+    note: value.note === undefined ? undefined : value.note,
+  };
 };
 
 /**
@@ -127,7 +167,10 @@ const ensureCanChangeStatus = (oldStatus: string, newStatus: string) => {
  * Shipment = vận chuyển.
  * Manual = thủ công, vì hiện tại chưa tích hợp GHN/GHTK/Viettel Post.
  */
-const createShipmentWhenOrderConfirmed = async (tx: any, orderId: number) => {
+const createShipmentWhenOrderConfirmed = async (
+  tx: Prisma.TransactionClient,
+  orderId: number
+) => {
   const existedShipment = await tx.shipments.findFirst({
     where: {
       order_id: orderId,
@@ -193,7 +236,10 @@ const parseExpireLimit = (value?: number) => {
 /**
  * Hoàn lại tồn kho cho các sản phẩm trong đơn hàng.
  */
-const restoreOrderStock = async (tx: any, orderId: number) => {
+const restoreOrderStock = async (
+  tx: Prisma.TransactionClient,
+  orderId: number
+) => {
   const orderDetails = await tx.order_details.findMany({
     where: {
       order_id: orderId,
@@ -223,12 +269,65 @@ const restoreOrderStock = async (tx: any, orderId: number) => {
  * Với schema hiện tại, cách an toàn là xóa bản ghi voucher_usages
  * của order bị hủy để voucher không bị tính là đã dùng.
  */
-const restoreOrderVoucherUsage = async (tx: any, orderId: number) => {
+const restoreOrderVoucherUsage = async (
+  tx: Prisma.TransactionClient,
+  orderId: number
+) => {
   await tx.voucher_usages.deleteMany({
     where: {
       order_id: orderId,
     },
   });
+};
+
+const synchronizeCancelledOrderRelations = async (
+  tx: Prisma.TransactionClient,
+  orderId: number,
+  cancelledAt: Date
+) => {
+  await tx.payment_transactions.updateMany({
+    where: {
+      order_id: orderId,
+      payment_type: "Payment",
+      status: "Pending",
+    },
+    data: {
+      status: "Cancelled",
+      updated_at: cancelledAt,
+    },
+  });
+
+  const activeShipments = await tx.shipments.findMany({
+    where: {
+      order_id: orderId,
+      status: {
+        notIn: ["Cancelled", "Delivered"],
+      },
+    },
+    select: {
+      shipment_id: true,
+    },
+  });
+
+  for (const shipment of activeShipments) {
+    await tx.shipments.update({
+      where: {
+        shipment_id: shipment.shipment_id,
+      },
+      data: {
+        status: "Cancelled",
+      },
+    });
+
+    await tx.shipment_status_history.create({
+      data: {
+        shipment_id: shipment.shipment_id,
+        status: "Cancelled",
+        location: null,
+        note: "Đơn hàng đã bị hủy",
+      },
+    });
+  }
 };
 /**
  * GET /api/admin/orders
@@ -389,7 +488,7 @@ export const getAdminOrderDetailService = async (
 export const updateAdminOrderStatusService = async (
   orderId: number,
   adminUserId: number,
-  body: UpdateAdminOrderStatusBody
+  requestBody: unknown
 ): Promise<AdminOrderDto> => {
   if (!orderId || Number.isNaN(orderId)) {
     throw new AdminOrderServiceError("orderId không hợp lệ", 400);
@@ -399,14 +498,8 @@ export const updateAdminOrderStatusService = async (
     throw new AdminOrderServiceError("Không xác định được admin", 401);
   }
 
-  const newStatus = normalizeText(body.status);
-
-  if (!newStatus) {
-    throw new AdminOrderServiceError("Vui lòng chọn trạng thái mới", 400);
-  }
-
-  ensureValidOrderStatus(newStatus);
-
+  const body = parseUpdateAdminOrderStatusBody(requestBody);
+  const newStatus = body.status;
   const note = normalizeText(body.note);
 
   const updatedOrder = await prisma.$transaction(async (tx) => {
@@ -426,6 +519,24 @@ export const updateAdminOrderStatusService = async (
     const oldStatus = order.order_status;
 
     ensureCanChangeStatus(oldStatus, newStatus);
+    const transitionedAt = new Date();
+    const claimedOrder = await tx.orders.updateMany({
+      where: {
+        order_id: orderId,
+        order_status: oldStatus,
+      },
+      data: {
+        order_status: newStatus,
+        updated_at: transitionedAt,
+      },
+    });
+
+    if (claimedOrder.count !== 1) {
+      throw new AdminOrderServiceError(
+        "Trạng thái đơn hàng đã được thay đổi",
+        400
+      );
+    }
 
     /**
      * Nếu chuyển sang Cancelled:
@@ -469,17 +580,13 @@ export const updateAdminOrderStatusService = async (
           },
         });
       }
-    }
 
-    await tx.orders.update({
-      where: {
-        order_id: orderId,
-      },
-      data: {
-        order_status: newStatus,
-        updated_at: new Date(),
-      },
-    });
+      await synchronizeCancelledOrderRelations(
+        tx,
+        order.order_id,
+        transitionedAt
+      );
+    }
 
     /**
      * Khi admin xác nhận đơn:

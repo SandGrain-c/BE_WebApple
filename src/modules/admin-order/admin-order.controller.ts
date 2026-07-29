@@ -9,23 +9,16 @@ import {
   updateAdminOrderStatusService,
   expirePendingPaymentsService,
 } from "./admin-order.service";
-import {
-  GetAdminOrdersQuery,
-  UpdateAdminOrderStatusBody,
-} from "./admin-order.dto";
+import { GetAdminOrdersQuery } from "./admin-order.dto";
 
 /**
  * Lấy admin userId từ authMiddleware.
  */
 const getAdminUserIdFromRequest = (req: Request) => {
-  return Number((req as any).user?.userId);
+  return Number(req.user?.userId);
 };
 const getActorIdFromRequest = (req: Request): number => {
-  const user = (req as any).user;
-
-  const userId = user?.userId ?? user?.id ?? user?.user_id;
-
-  const numberUserId = Number(userId);
+  const numberUserId = Number(req.user?.userId);
 
   if (!Number.isInteger(numberUserId) || numberUserId <= 0) {
     return 0;
@@ -38,15 +31,18 @@ const getActorIdFromRequest = (req: Request): number => {
  * Xử lý lỗi chung cho Admin Order Controller.
  */
 const handleAdminOrderError = (res: Response, error: unknown) => {
-  const statusCode =
-    error instanceof AdminOrderServiceError ? error.statusCode : 500;
+  if (error instanceof AdminOrderServiceError) {
+    return res.status(error.statusCode).json({
+      success: false,
+      message: error.message,
+    });
+  }
 
-  const message =
-    error instanceof Error ? error.message : "Xử lý đơn hàng thất bại";
+  console.error("[admin-order] unexpected processing error", error);
 
-  return res.status(statusCode).json({
+  return res.status(500).json({
     success: false,
-    message,
+    message: "Xử lý đơn hàng thất bại",
   });
 };
 
@@ -108,7 +104,7 @@ export const updateAdminOrderStatusController = async (
     const data = await updateAdminOrderStatusService(
       orderId,
       adminUserId,
-      req.body as UpdateAdminOrderStatusBody
+      req.body
     );
 
     return res.json({

@@ -1,15 +1,14 @@
 // src/modules/admin-product-item/admin-product-item.service.ts
 
 import prisma from "../../utils/prisma";
+import { Prisma } from "../../generated/prisma/client";
 import type {
   AdminProductItemDto,
   AdminProductItemListResponseDto,
-  CreateProductItemBody,
-  GetAdminProductItemsQuery,
   ProductItemStatus,
-  UpdateProductItemBody,
 } from "./admin-product-item.dto";
 import { mapAdminProductItemToDto } from "./admin-product-item.mapper";
+import { usesSerializedInventory } from "../admin-inventory/inventory-serial.policy";
 
 export class AdminProductItemServiceError extends Error {
   statusCode: number;
@@ -49,51 +48,85 @@ const productItemInclude = {
   },
 };
 
-const normalizeText = (value?: string | null) => {
-  const text = value?.trim();
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
 
-  return text ? text : null;
-};
-
-const parsePositiveInt = (value: unknown) => {
-  const numberValue = Number(value);
-
-  if (!Number.isInteger(numberValue) || numberValue <= 0) {
+const normalizeOptionalText = (
+  value: unknown,
+  fieldName: string
+): string | null => {
+  if (value === undefined || value === null) {
     return null;
   }
 
-  return numberValue;
-};
-
-const parsePage = (value: unknown) => {
-  const page = Number(value) || 1;
-
-  if (!Number.isInteger(page) || page <= 0) {
-    return 1;
+  if (typeof value !== "string") {
+    throw new AdminProductItemServiceError(
+      `${fieldName} không hợp lệ`,
+      400
+    );
   }
 
-  return page;
+  const text = value.trim();
+
+  return text || null;
 };
 
-const parseLimit = (value: unknown) => {
-  const limit = Number(value) || 10;
-
-  if (!Number.isInteger(limit) || limit <= 0) {
-    return 10;
+const parsePositiveBodyInteger = (value: unknown, fieldName: string) => {
+  if (
+    typeof value !== "number" ||
+    !Number.isFinite(value) ||
+    !Number.isInteger(value) ||
+    value <= 0
+  ) {
+    throw new AdminProductItemServiceError(
+      `${fieldName} không hợp lệ`,
+      400
+    );
   }
 
-  return Math.min(limit, 100);
+  return value;
+};
+
+const parsePositiveQueryInteger = (
+  value: unknown,
+  fieldName: string,
+  fallback?: number
+) => {
+  if (value === undefined && fallback !== undefined) {
+    return fallback;
+  }
+
+  if (typeof value !== "string" || !/^[1-9]\d*$/.test(value)) {
+    throw new AdminProductItemServiceError(
+      `${fieldName} không hợp lệ`,
+      400
+    );
+  }
+
+  const parsed = Number(value);
+
+  if (!Number.isSafeInteger(parsed)) {
+    throw new AdminProductItemServiceError(
+      `${fieldName} không hợp lệ`,
+      400
+    );
+  }
+
+  return parsed;
 };
 
 /**
  * Convert status từ API dạng string sang DB dạng number.
  */
-const parseStatusToDb = (status?: string | null): number | null => {
-  if (!status) {
+const parseStatusToDb = (status: unknown): number | null => {
+  if (status === undefined || status === null) {
     return null;
   }
 
-  if (!PRODUCT_ITEM_STATUSES.includes(status as ProductItemStatus)) {
+  if (
+    typeof status !== "string" ||
+    !PRODUCT_ITEM_STATUSES.includes(status as ProductItemStatus)
+  ) {
     throw new AdminProductItemServiceError(
       "Trạng thái serial sản phẩm không hợp lệ",
       400
@@ -109,7 +142,21 @@ const ensureVariantExists = async (variantId: number) => {
       variant_id: variantId,
     },
     include: {
-      products: true,
+      products: {
+        include: {
+          categories: {
+            select: {
+              category_name: true,
+              slug: true,
+            },
+          },
+        },
+      },
+      product_items: {
+        select: {
+          status: true,
+        },
+      },
     },
   });
 
@@ -138,6 +185,41 @@ const ensureSerialNumberProvided = (serialNumber: string | null): string => {
   return serialNumber;
 };
 
+const normalizeSerialNumber = (value: unknown) =>
+  ensureSerialNumberProvided(
+    normalizeOptionalText(value, "serialNumber")
+  );
+
+const isPrismaUniqueConstraintError = (error: unknown) =>
+  error instanceof Prisma.PrismaClientKnownRequestError &&
+  error.code === "P2002";
+
+const GENERIC_STATUS_TRANSITIONS: Record<number, readonly number[]> = {
+  [PRODUCT_ITEM_STATUS_TO_DB.InStock]: [
+    PRODUCT_ITEM_STATUS_TO_DB.Reserved,
+    PRODUCT_ITEM_STATUS_TO_DB.Warranty,
+    PRODUCT_ITEM_STATUS_TO_DB.Inactive,
+  ],
+  [PRODUCT_ITEM_STATUS_TO_DB.Reserved]: [
+    PRODUCT_ITEM_STATUS_TO_DB.InStock,
+    PRODUCT_ITEM_STATUS_TO_DB.Inactive,
+  ],
+  [PRODUCT_ITEM_STATUS_TO_DB.Sold]: [],
+  [PRODUCT_ITEM_STATUS_TO_DB.Warranty]: [
+    PRODUCT_ITEM_STATUS_TO_DB.Returned,
+    PRODUCT_ITEM_STATUS_TO_DB.InStock,
+    PRODUCT_ITEM_STATUS_TO_DB.Inactive,
+  ],
+  [PRODUCT_ITEM_STATUS_TO_DB.Returned]: [
+    PRODUCT_ITEM_STATUS_TO_DB.InStock,
+    PRODUCT_ITEM_STATUS_TO_DB.Warranty,
+    PRODUCT_ITEM_STATUS_TO_DB.Inactive,
+  ],
+  [PRODUCT_ITEM_STATUS_TO_DB.Inactive]: [
+    PRODUCT_ITEM_STATUS_TO_DB.InStock,
+  ],
+};
+
 const ensureUniqueSerial = async (
   serialNumber: string,
   ignoreProductItemId?: number
@@ -161,18 +243,31 @@ const ensureUniqueSerial = async (
 };
 
 export const getAdminProductItemsService = async (
-  query: GetAdminProductItemsQuery
+  rawQuery: unknown
 ): Promise<AdminProductItemListResponseDto> => {
-  const page = parsePage(query.page);
-  const limit = parseLimit(query.limit);
+  if (!isRecord(rawQuery)) {
+    throw new AdminProductItemServiceError("Query serial không hợp lệ", 400);
+  }
+
+  const page = parsePositiveQueryInteger(rawQuery.page, "page", 1);
+  const limit = Math.min(
+    parsePositiveQueryInteger(rawQuery.limit, "limit", 10),
+    100
+  );
   const skip = (page - 1) * limit;
 
-  const keyword = normalizeText(query.q);
-  const status = parseStatusToDb(query.status);
-  const variantId = parsePositiveInt(query.variantId);
-  const productId = parsePositiveInt(query.productId);
+  const keyword = normalizeOptionalText(rawQuery.q, "q");
+  const status = parseStatusToDb(rawQuery.status);
+  const variantId =
+    rawQuery.variantId === undefined
+      ? undefined
+      : parsePositiveQueryInteger(rawQuery.variantId, "variantId");
+  const productId =
+    rawQuery.productId === undefined
+      ? undefined
+      : parsePositiveQueryInteger(rawQuery.productId, "productId");
 
-  const where: any = {};
+  const where: Prisma.product_itemsWhereInput = {};
 
   if (status) {
     where.status = status;
@@ -266,44 +361,76 @@ export const getAdminProductItemDetailService = async (
 };
 
 export const createAdminProductItemService = async (
-  body: CreateProductItemBody
+  rawBody: unknown
 ): Promise<AdminProductItemDto> => {
-  const variantId = parsePositiveInt(body.variantId);
-
-  if (!variantId) {
-    throw new AdminProductItemServiceError("variantId không hợp lệ", 400);
+  if (!isRecord(rawBody)) {
+    throw new AdminProductItemServiceError(
+      "Dữ liệu serial không hợp lệ",
+      400
+    );
   }
 
-  const serialNumber = ensureSerialNumberProvided(
-    normalizeText(body.serialNumber)
+  const variantId = parsePositiveBodyInteger(
+    rawBody.variantId,
+    "variantId"
   );
+  const serialNumber = normalizeSerialNumber(rawBody.serialNumber);
+  const requestedStatus = parseStatusToDb(rawBody.status);
 
-  const status = parseStatusToDb(body.status) ?? PRODUCT_ITEM_STATUS_TO_DB.InStock;
-
-  await ensureVariantExists(variantId);
+  if (
+    requestedStatus !== null &&
+    requestedStatus !== PRODUCT_ITEM_STATUS_TO_DB.InStock
+  ) {
+    throw new AdminProductItemServiceError(
+      "Serial mới chỉ được tạo ở trạng thái InStock",
+      400
+    );
+  }
 
   await ensureUniqueSerial(serialNumber);
+  const variant = await ensureVariantExists(variantId);
+  const status = PRODUCT_ITEM_STATUS_TO_DB.InStock;
 
-  /**
-   * API này chỉ quản lý serial, không tự tăng stock_quantity.
-   * Tồn kho tổng vẫn nên do Inventory API quản lý để tránh cộng tồn kho 2 lần.
-   */
-  const item = await prisma.product_items.create({
-    data: {
-      variant_id: variantId,
-      serial_number: serialNumber,
-      status,
-    },
-    include: productItemInclude,
-  });
+  if (usesSerializedInventory(variant)) {
+    throw new AdminProductItemServiceError(
+      "Hãy tạo serial của biến thể này qua phiếu nhập kho",
+      409
+    );
+  }
+
+  let item;
+
+  try {
+    item = await prisma.product_items.create({
+      data: {
+        variant_id: variantId,
+        serial_number: serialNumber,
+        status,
+      },
+      include: productItemInclude,
+    });
+  } catch (error) {
+    if (isPrismaUniqueConstraintError(error)) {
+      throw new AdminProductItemServiceError("Serial đã tồn tại", 409);
+    }
+
+    throw error;
+  }
 
   return mapAdminProductItemToDto(item);
 };
 
 export const updateAdminProductItemService = async (
   productItemId: number,
-  body: UpdateProductItemBody
+  rawBody: unknown
 ): Promise<AdminProductItemDto> => {
+  if (!isRecord(rawBody)) {
+    throw new AdminProductItemServiceError(
+      "Dữ liệu cập nhật serial không hợp lệ",
+      400
+    );
+  }
+
   const currentItem = await prisma.product_items.findUnique({
     where: {
       item_id: productItemId,
@@ -317,44 +444,52 @@ export const updateAdminProductItemService = async (
     );
   }
 
-  /**
-   * Nếu item đã bán thì không cho sửa serial/variant.
-   * Tránh sai dữ liệu sau bán hàng.
-   */
   if (currentItem.status === PRODUCT_ITEM_STATUS_TO_DB.Sold) {
-    const onlyStatusUpdate =
-      Object.keys(body).length === 1 && body.status !== undefined;
-
-    if (!onlyStatusUpdate) {
-      throw new AdminProductItemServiceError(
-        "Sản phẩm đã bán không được sửa thông tin serial",
-        400
-      );
-    }
+    throw new AdminProductItemServiceError(
+      "Sản phẩm đã bán không được sửa thông tin serial",
+      400
+    );
   }
 
-  const updateData: any = {};
+  const updateData: {
+    variant_id?: number;
+    serial_number?: string;
+    status?: number;
+  } = {};
+  let targetVariant:
+    | Awaited<ReturnType<typeof ensureVariantExists>>
+    | undefined;
 
-  if (body.variantId !== undefined) {
-    const variantId = parsePositiveInt(body.variantId);
+  if (rawBody.variantId !== undefined) {
+    const variantId = parsePositiveBodyInteger(
+      rawBody.variantId,
+      "variantId"
+    );
 
-    if (!variantId) {
-      throw new AdminProductItemServiceError("variantId không hợp lệ", 400);
-    }
-
-    await ensureVariantExists(variantId);
+    targetVariant = await ensureVariantExists(variantId);
 
     updateData.variant_id = variantId;
   }
 
-  if (body.serialNumber !== undefined) {
-    updateData.serial_number = ensureSerialNumberProvided(
-      normalizeText(body.serialNumber)
-    );
+  if (rawBody.serialNumber !== undefined) {
+    updateData.serial_number = normalizeSerialNumber(rawBody.serialNumber);
   }
 
-  if (body.status !== undefined) {
-    updateData.status = parseStatusToDb(body.status);
+  if (rawBody.status !== undefined) {
+    const nextStatus = parseStatusToDb(rawBody.status);
+
+    if (
+      nextStatus === null ||
+      nextStatus === PRODUCT_ITEM_STATUS_TO_DB.Sold ||
+      !GENERIC_STATUS_TRANSITIONS[currentItem.status]?.includes(nextStatus)
+    ) {
+      throw new AdminProductItemServiceError(
+        "Không thể chuyển trạng thái serial theo yêu cầu",
+        400
+      );
+    }
+
+    updateData.status = nextStatus;
   }
 
   if (Object.keys(updateData).length === 0) {
@@ -369,15 +504,43 @@ export const updateAdminProductItemService = async (
       ? updateData.serial_number
       : currentItem.serial_number;
 
+  const currentVariant = await ensureVariantExists(currentItem.variant_id);
+  const changesInStockMembership =
+    updateData.status !== undefined &&
+    (currentItem.status === PRODUCT_ITEM_STATUS_TO_DB.InStock ||
+      updateData.status === PRODUCT_ITEM_STATUS_TO_DB.InStock);
+
+  if (
+    (changesInStockMembership || updateData.variant_id !== undefined) &&
+    (usesSerializedInventory(currentVariant) ||
+      (targetVariant !== undefined &&
+        usesSerializedInventory(targetVariant)))
+  ) {
+    throw new AdminProductItemServiceError(
+      "Không thể thay đổi counter/serial ngoài nghiệp vụ kho",
+      409
+    );
+  }
+
   await ensureUniqueSerial(nextSerialNumber, productItemId);
 
-  const updatedItem = await prisma.product_items.update({
-    where: {
-      item_id: productItemId,
-    },
-    data: updateData,
-    include: productItemInclude,
-  });
+  let updatedItem;
+
+  try {
+    updatedItem = await prisma.product_items.update({
+      where: {
+        item_id: productItemId,
+      },
+      data: updateData,
+      include: productItemInclude,
+    });
+  } catch (error) {
+    if (isPrismaUniqueConstraintError(error)) {
+      throw new AdminProductItemServiceError("Serial đã tồn tại", 409);
+    }
+
+    throw error;
+  }
 
   return mapAdminProductItemToDto(updatedItem);
 };
@@ -403,6 +566,18 @@ export const deleteAdminProductItemService = async (
     throw new AdminProductItemServiceError(
       "Không thể xóa sản phẩm đã bán",
       400
+    );
+  }
+
+  const currentVariant = await ensureVariantExists(currentItem.variant_id);
+
+  if (
+    currentItem.status === PRODUCT_ITEM_STATUS_TO_DB.InStock &&
+    usesSerializedInventory(currentVariant)
+  ) {
+    throw new AdminProductItemServiceError(
+      "Không thể xóa serial InStock ngoài nghiệp vụ kho",
+      409
     );
   }
 

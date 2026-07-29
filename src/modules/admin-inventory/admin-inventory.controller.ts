@@ -8,27 +8,22 @@ import {
   getInventoryReceiptsService,
   getInventoryVariantsService,
 } from "./admin-inventory.service";
-import {
-  AdjustStockBody,
-  CreateInventoryReceiptBody,
-  GetInventoryReceiptsQuery,
-  GetInventoryVariantsQuery,
-} from "./admin-inventory.dto";
 
 const getAdminUserIdFromRequest = (req: Request) => {
-  return Number((req as any).user?.userId);
+  return req.user?.userId ?? Number.NaN;
 };
 
 const handleAdminInventoryError = (res: Response, error: unknown) => {
-  const statusCode =
-    error instanceof AdminInventoryServiceError ? error.statusCode : 500;
+  if (error instanceof AdminInventoryServiceError) {
+    return res.status(error.statusCode).json({
+      success: false,
+      message: error.message,
+    });
+  }
 
-  const message =
-    error instanceof Error ? error.message : "Xử lý kho hàng thất bại";
-
-  return res.status(statusCode).json({
+  return res.status(500).json({
     success: false,
-    message,
+    message: "Xử lý tồn kho thất bại",
   });
 };
 
@@ -40,9 +35,7 @@ export const getInventoryVariantsController = async (
   res: Response
 ) => {
   try {
-    const data = await getInventoryVariantsService(
-      req.query as GetInventoryVariantsQuery
-    );
+    const data = await getInventoryVariantsService(req.query);
 
     return res.json({
       success: true,
@@ -62,9 +55,7 @@ export const getInventoryReceiptsController = async (
   res: Response
 ) => {
   try {
-    const data = await getInventoryReceiptsService(
-      req.query as GetInventoryReceiptsQuery
-    );
+    const data = await getInventoryReceiptsService(req.query);
 
     return res.json({
       success: true,
@@ -109,7 +100,7 @@ export const createInventoryReceiptController = async (
 
     const data = await createInventoryReceiptService(
       warehouseStaffId,
-      req.body as CreateInventoryReceiptBody
+      req.body
     );
 
     return res.status(201).json({
@@ -136,7 +127,7 @@ export const adjustVariantStockController = async (
     const data = await adjustVariantStockService(
       adminUserId,
       variantId,
-      req.body as AdjustStockBody
+      req.body
     );
 
     return res.json({

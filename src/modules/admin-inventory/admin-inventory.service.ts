@@ -1,9 +1,6 @@
 import prisma from "../../utils/prisma";
+import { Prisma } from "../../generated/prisma/client";
 import {
-  AdjustStockBody,
-  CreateInventoryReceiptBody,
-  GetInventoryReceiptsQuery,
-  GetInventoryVariantsQuery,
   InventoryReceiptDto,
   InventoryReceiptListResponseDto,
   InventoryVariantListResponseDto,
@@ -14,6 +11,7 @@ import {
   mapInventoryReceiptToDto,
   mapInventoryVariantToDto,
 } from "./admin-inventory.mapper";
+import { usesSerializedInventory } from "./inventory-serial.policy";
 
 export class AdminInventoryServiceError extends Error {
   statusCode: number;
@@ -30,6 +28,12 @@ const inventoryVariantInclude = {
       product_id: true,
       name: true,
       slug: true,
+      categories: {
+        select: {
+          category_name: true,
+          slug: true,
+        },
+      },
     },
   },
   product_items: {
@@ -89,8 +93,22 @@ const receiptDetailInclude = {
   },
 };
 
-const normalizeText = (value?: string | null) => {
-  const text = value?.trim();
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+
+const normalizeOptionalText = (
+  value: unknown,
+  fieldName: string
+): string | null => {
+  if (value === undefined || value === null) {
+    return null;
+  }
+
+  if (typeof value !== "string") {
+    throw new AdminInventoryServiceError(`${fieldName} không hợp lệ`, 400);
+  }
+
+  const text = value.trim();
   return text ? text : null;
 };
 
@@ -101,34 +119,82 @@ const validateAdminUserId = (userId: number) => {
 };
 
 const normalizePositiveInteger = (value: unknown, fieldName: string) => {
-  const numberValue = Number(value);
-
-  if (!Number.isInteger(numberValue) || numberValue <= 0) {
+  if (
+    typeof value !== "number" ||
+    !Number.isFinite(value) ||
+    !Number.isInteger(value) ||
+    value <= 0
+  ) {
     throw new AdminInventoryServiceError(`${fieldName} phải là số nguyên dương`, 400);
   }
 
-  return numberValue;
+  return value;
 };
 
-const normalizeNonNegativeInteger = (value: unknown, fieldName: string) => {
-  const numberValue = Number(value);
+const normalizeQueryInteger = (
+  value: unknown,
+  fieldName: string,
+  options: {
+    fallback?: number;
+    allowZero?: boolean;
+    maximum?: number;
+  } = {}
+) => {
+  if (value === undefined) {
+    if (options.fallback !== undefined) {
+      return options.fallback;
+    }
 
-  if (!Number.isInteger(numberValue) || numberValue < 0) {
     throw new AdminInventoryServiceError(`${fieldName} không hợp lệ`, 400);
   }
 
-  return numberValue;
+  const minimumPattern = options.allowZero ? /^\d+$/ : /^[1-9]\d*$/;
+
+  if (typeof value !== "string" || !minimumPattern.test(value)) {
+    throw new AdminInventoryServiceError(`${fieldName} không hợp lệ`, 400);
+  }
+
+  const parsed = Number(value);
+
+  if (
+    !Number.isSafeInteger(parsed) ||
+    (options.maximum !== undefined && parsed > options.maximum)
+  ) {
+    throw new AdminInventoryServiceError(`${fieldName} không hợp lệ`, 400);
+  }
+
+  return parsed;
 };
 
 const normalizeMoney = (value: unknown, fieldName: string) => {
-  const numberValue = Number(value);
-
-  if (Number.isNaN(numberValue) || numberValue < 0) {
+  if (
+    typeof value !== "number" ||
+    !Number.isFinite(value) ||
+    value < 0
+  ) {
     throw new AdminInventoryServiceError(`${fieldName} không hợp lệ`, 400);
   }
 
-  return numberValue;
+  return value;
 };
+
+const normalizeSerialNumber = (value: unknown, fieldName: string) => {
+  if (typeof value !== "string") {
+    throw new AdminInventoryServiceError(`${fieldName} không hợp lệ`, 400);
+  }
+
+  const serialNumber = value.trim();
+
+  if (!serialNumber) {
+    throw new AdminInventoryServiceError(`${fieldName} không hợp lệ`, 400);
+  }
+
+  return serialNumber;
+};
+
+const isPrismaUniqueConstraintError = (error: unknown) =>
+  error instanceof Prisma.PrismaClientKnownRequestError &&
+  error.code === "P2002";
 
 const ensureVariantExists = async (variantId: number) => {
   const variant = await prisma.product_variants.findUnique({
@@ -137,10 +203,18 @@ const ensureVariantExists = async (variantId: number) => {
     },
     include: {
       products: {
+        include: {
+          categories: {
+            select: {
+              category_name: true,
+              slug: true,
+            },
+          },
+        },
+      },
+      product_items: {
         select: {
-          product_id: true,
-          name: true,
-          is_active: true,
+          status: true,
         },
       },
     },
@@ -160,23 +234,120 @@ const ensureVariantExists = async (variantId: number) => {
   return variant;
 };
 
+const parseInventoryVariantQuery = (rawQuery: unknown) => {
+  if (!isRecord(rawQuery)) {
+    throw new AdminInventoryServiceError("Query tồn kho không hợp lệ", 400);
+  }
+
+  const page = normalizeQueryInteger(rawQuery.page, "page", {
+    fallback: 1,
+  });
+  const requestedLimit = normalizeQueryInteger(rawQuery.limit, "limit", {
+    fallback: 10,
+  });
+  const limit = Math.min(requestedLimit, 100);
+  const productId =
+    rawQuery.productId === undefined
+      ? undefined
+      : normalizeQueryInteger(rawQuery.productId, "productId");
+  const lowStockThreshold =
+    rawQuery.lowStockThreshold === undefined
+      ? 5
+      : normalizeQueryInteger(
+          rawQuery.lowStockThreshold,
+          "lowStockThreshold",
+          { allowZero: true }
+        );
+  const search = normalizeOptionalText(rawQuery.search, "search");
+  const stockStatus = rawQuery.stockStatus;
+  const sort = rawQuery.sort;
+  const allowedStockStatuses = [
+    "in-stock",
+    "low-stock",
+    "out-of-stock",
+  ];
+  const allowedSorts = [
+    "stock_asc",
+    "stock_desc",
+    "sku_asc",
+    "sku_desc",
+  ];
+
+  if (
+    stockStatus !== undefined &&
+    (typeof stockStatus !== "string" ||
+      !allowedStockStatuses.includes(stockStatus))
+  ) {
+    throw new AdminInventoryServiceError("stockStatus không hợp lệ", 400);
+  }
+
+  if (
+    sort !== undefined &&
+    (typeof sort !== "string" || !allowedSorts.includes(sort))
+  ) {
+    throw new AdminInventoryServiceError("sort không hợp lệ", 400);
+  }
+
+  return {
+    page,
+    limit,
+    productId,
+    lowStockThreshold,
+    search,
+    stockStatus,
+    sort,
+  };
+};
+
+const parseInventoryReceiptQuery = (rawQuery: unknown) => {
+  if (!isRecord(rawQuery)) {
+    throw new AdminInventoryServiceError("Query phiếu nhập không hợp lệ", 400);
+  }
+
+  const page = normalizeQueryInteger(rawQuery.page, "page", {
+    fallback: 1,
+  });
+  const requestedLimit = normalizeQueryInteger(rawQuery.limit, "limit", {
+    fallback: 10,
+  });
+  const sort = rawQuery.sort;
+  const allowedSorts = ["oldest", "amount_asc", "amount_desc"];
+
+  if (
+    sort !== undefined &&
+    (typeof sort !== "string" || !allowedSorts.includes(sort))
+  ) {
+    throw new AdminInventoryServiceError("sort không hợp lệ", 400);
+  }
+
+  const dateFrom = normalizeOptionalText(rawQuery.dateFrom, "dateFrom");
+  const dateTo = normalizeOptionalText(rawQuery.dateTo, "dateTo");
+
+  return {
+    page,
+    limit: Math.min(requestedLimit, 100),
+    search: normalizeOptionalText(rawQuery.search, "search"),
+    dateFrom,
+    dateTo,
+    sort,
+  };
+};
+
 /**
  * GET /api/admin/inventory/variants
  * Lấy danh sách tồn kho theo variant.
  */
 export const getInventoryVariantsService = async (
-  query: GetInventoryVariantsQuery
+  rawQuery: unknown
 ): Promise<InventoryVariantListResponseDto> => {
-  const page = Math.max(Number(query.page) || 1, 1);
-  const limit = Math.min(Math.max(Number(query.limit) || 10, 1), 100);
+  const query = parseInventoryVariantQuery(rawQuery);
+  const page = query.page;
+  const limit = query.limit;
   const skip = (page - 1) * limit;
 
-  const search = normalizeText(query.search);
-  const productId = query.productId ? Number(query.productId) : undefined;
-  const lowStockThreshold =
-    query.lowStockThreshold !== undefined && query.lowStockThreshold !== ""
-      ? normalizeNonNegativeInteger(query.lowStockThreshold, "lowStockThreshold")
-      : 5;
+  const search = query.search;
+  const productId = query.productId;
+  const lowStockThreshold = query.lowStockThreshold;
 
   const where: any = {};
 
@@ -206,10 +377,6 @@ export const getInventoryVariantsService = async (
   }
 
   if (productId !== undefined) {
-    if (Number.isNaN(productId)) {
-      throw new AdminInventoryServiceError("productId không hợp lệ", 400);
-    }
-
     where.product_id = productId;
   }
 
@@ -286,13 +453,14 @@ export const getInventoryVariantsService = async (
  * Lấy danh sách phiếu nhập kho.
  */
 export const getInventoryReceiptsService = async (
-  query: GetInventoryReceiptsQuery
+  rawQuery: unknown
 ): Promise<InventoryReceiptListResponseDto> => {
-  const page = Math.max(Number(query.page) || 1, 1);
-  const limit = Math.min(Math.max(Number(query.limit) || 10, 1), 100);
+  const query = parseInventoryReceiptQuery(rawQuery);
+  const page = query.page;
+  const limit = query.limit;
   const skip = (page - 1) * limit;
 
-  const search = normalizeText(query.search);
+  const search = query.search;
 
   const where: any = {};
 
@@ -441,41 +609,67 @@ export const getInventoryReceiptDetailService = async (
  */
 export const createInventoryReceiptService = async (
   warehouseStaffId: number,
-  body: CreateInventoryReceiptBody
+  rawBody: unknown
 ): Promise<InventoryReceiptDto> => {
   validateAdminUserId(warehouseStaffId);
 
-  if (!Array.isArray(body.items) || body.items.length === 0) {
+  if (!isRecord(rawBody)) {
+    throw new AdminInventoryServiceError("Dữ liệu phiếu nhập không hợp lệ", 400);
+  }
+
+  if (!Array.isArray(rawBody.items) || rawBody.items.length === 0) {
     throw new AdminInventoryServiceError("Phiếu nhập phải có ít nhất một sản phẩm", 400);
   }
 
-  const supplierName = normalizeText(body.supplierName);
+  const supplierName = normalizeOptionalText(
+    rawBody.supplierName,
+    "supplierName"
+  );
   const supplierId =
-    body.supplierId === undefined || body.supplierId === null
+    rawBody.supplierId === undefined || rawBody.supplierId === null
       ? null
-      : Number(body.supplierId);
+      : normalizePositiveInteger(rawBody.supplierId, "supplierId");
 
-  if (supplierId !== null && Number.isNaN(supplierId)) {
-    throw new AdminInventoryServiceError("supplierId không hợp lệ", 400);
-  }
+  const normalizedItems = rawBody.items.map((rawItem, index) => {
+    if (!isRecord(rawItem)) {
+      throw new AdminInventoryServiceError(
+        `Dòng ${index + 1} không hợp lệ`,
+        400
+      );
+    }
 
-  const normalizedItems = body.items.map((item, index) => {
     const variantId = normalizePositiveInteger(
-      item.variantId,
+      rawItem.variantId,
       `variantId dòng ${index + 1}`
     );
 
     const quantity = normalizePositiveInteger(
-      item.quantity,
+      rawItem.quantity,
       `quantity dòng ${index + 1}`
     );
 
-    const costPrice = normalizeMoney(item.costPrice, `costPrice dòng ${index + 1}`);
+    const costPrice = normalizeMoney(
+      rawItem.costPrice,
+      `costPrice dòng ${index + 1}`
+    );
 
-    const serialNumbers = Array.isArray(item.serialNumbers)
-      ? item.serialNumbers
-          .map((serial) => normalizeText(serial))
-          .filter((serial): serial is string => !!serial)
+    if (
+      rawItem.serialNumbers !== undefined &&
+      !Array.isArray(rawItem.serialNumbers)
+    ) {
+      throw new AdminInventoryServiceError(
+        `serialNumbers dòng ${index + 1} không hợp lệ`,
+        400
+      );
+    }
+
+    const serialNumbers = Array.isArray(rawItem.serialNumbers)
+      ? rawItem.serialNumbers.map((serial, serialIndex) =>
+          normalizeSerialNumber(
+            serial,
+            `serialNumber ${serialIndex + 1} dòng ${index + 1}`
+          )
+        )
       : [];
 
     if (serialNumbers.length > 0 && serialNumbers.length !== quantity) {
@@ -538,7 +732,17 @@ export const createInventoryReceiptService = async (
   }
 
   for (const item of normalizedItems) {
-    await ensureVariantExists(item.variantId);
+    const variant = await ensureVariantExists(item.variantId);
+
+    if (
+      usesSerializedInventory(variant) &&
+      item.serialNumbers.length !== item.quantity
+    ) {
+      throw new AdminInventoryServiceError(
+        `Biến thể ở dòng ${normalizedItems.indexOf(item) + 1} yêu cầu đủ serialNumber`,
+        400
+      );
+    }
   }
 
   const totalAmount = normalizedItems.reduce(
@@ -546,80 +750,81 @@ export const createInventoryReceiptService = async (
     0
   );
 
-  const createdReceipt = await prisma.$transaction(async (tx) => {
-    const receipt = await tx.inventory_receipts.create({
-      data: {
-        warehouse_staff_id: warehouseStaffId,
-        supplier_name: supplierName,
-        supplier_id: supplierId,
-        total_amount: totalAmount,
-      },
-    });
+  let createdReceipt;
 
-    for (const item of normalizedItems) {
-      const detail = await tx.inventory_receipt_details.create({
+  try {
+    createdReceipt = await prisma.$transaction(async (tx) => {
+      const receipt = await tx.inventory_receipts.create({
         data: {
-          receipt_id: receipt.receipt_id,
-          variant_id: item.variantId,
-          quantity: item.quantity,
-          cost_price: item.costPrice,
+          warehouse_staff_id: warehouseStaffId,
+          supplier_name: supplierName,
+          supplier_id: supplierId,
+          total_amount: totalAmount,
         },
       });
 
-      /**
-       * Tăng tồn kho tổng ở product_variants.
-       */
-      await tx.product_variants.update({
-        where: {
-          variant_id: item.variantId,
-        },
-        data: {
-          stock_quantity: {
-            increment: item.quantity,
-          },
-        },
-      });
-
-      /**
-       * Nếu có serial, tạo product_items để quản lý từng máy.
-       */
-      if (item.serialNumbers.length > 0) {
-        await tx.product_items.createMany({
-          data: item.serialNumbers.map((serialNumber) => ({
+      for (const item of normalizedItems) {
+        const detail = await tx.inventory_receipt_details.create({
+          data: {
+            receipt_id: receipt.receipt_id,
             variant_id: item.variantId,
-            serial_number: serialNumber,
-            status: 1,
-            import_receipt_detail_id: detail.receipt_detail_id,
-          })),
+            quantity: item.quantity,
+            cost_price: item.costPrice,
+          },
         });
+
+        await tx.product_variants.update({
+          where: {
+            variant_id: item.variantId,
+          },
+          data: {
+            stock_quantity: {
+              increment: item.quantity,
+            },
+          },
+        });
+
+        if (item.serialNumbers.length > 0) {
+          await tx.product_items.createMany({
+            data: item.serialNumbers.map((serialNumber) => ({
+              variant_id: item.variantId,
+              serial_number: serialNumber,
+              status: 1,
+              import_receipt_detail_id: detail.receipt_detail_id,
+            })),
+          });
+        }
       }
+
+      await tx.audit_logs.create({
+        data: {
+          user_id: warehouseStaffId,
+          action: "CREATE_INVENTORY_RECEIPT",
+          entity_type: "inventory_receipts",
+          entity_id: receipt.receipt_id,
+          old_value: null,
+          new_value: JSON.stringify({
+            receiptId: receipt.receipt_id,
+            totalAmount,
+            items: normalizedItems,
+          }),
+        },
+      });
+
+      return tx.inventory_receipts.findUnique({
+        where: {
+          receipt_id: receipt.receipt_id,
+        },
+        include: receiptDetailInclude,
+      });
+    });
+  } catch (error) {
+    if (isPrismaUniqueConstraintError(error)) {
+      throw new AdminInventoryServiceError("Serial đã tồn tại", 409);
     }
 
-    /**
-     * Ghi audit log để biết ai nhập kho.
-     */
-    await tx.audit_logs.create({
-      data: {
-        user_id: warehouseStaffId,
-        action: "CREATE_INVENTORY_RECEIPT",
-        entity_type: "inventory_receipts",
-        entity_id: receipt.receipt_id,
-        old_value: null,
-        new_value: JSON.stringify({
-          receiptId: receipt.receipt_id,
-          totalAmount,
-          items: normalizedItems,
-        }),
-      },
-    });
-
-    return tx.inventory_receipts.findUnique({
-      where: {
-        receipt_id: receipt.receipt_id,
-      },
-      include: receiptDetailInclude,
-    });
-  });
+    throw error;
+  }
 
   if (!createdReceipt) {
     throw new AdminInventoryServiceError("Tạo phiếu nhập kho thất bại", 500);
@@ -635,19 +840,29 @@ export const createInventoryReceiptService = async (
 export const adjustVariantStockService = async (
   adminUserId: number,
   variantId: number,
-  body: AdjustStockBody
+  rawBody: unknown
 ): Promise<InventoryVariantDto> => {
   validateAdminUserId(adminUserId);
 
-  if (!variantId || Number.isNaN(variantId)) {
+  if (!Number.isInteger(variantId) || variantId <= 0) {
     throw new AdminInventoryServiceError("variantId không hợp lệ", 400);
   }
 
-  const type = body.type;
-  const quantity = normalizeNonNegativeInteger(body.quantity, "quantity");
-  const reason = normalizeText(body.reason);
+  if (!isRecord(rawBody)) {
+    throw new AdminInventoryServiceError(
+      "Dữ liệu điều chỉnh tồn kho không hợp lệ",
+      400
+    );
+  }
 
-  if (!["set", "increase", "decrease"].includes(type)) {
+  const type = rawBody.type;
+  const quantity = normalizePositiveInteger(rawBody.quantity, "quantity");
+  const reason = normalizeOptionalText(rawBody.reason, "reason");
+
+  if (
+    typeof type !== "string" ||
+    !["set", "increase", "decrease"].includes(type)
+  ) {
     throw new AdminInventoryServiceError(
       "type chỉ được là set, increase hoặc decrease",
       400
@@ -690,14 +905,72 @@ export const adjustVariantStockService = async (
       throw new AdminInventoryServiceError("Tồn kho sau điều chỉnh không được âm", 400);
     }
 
-    await tx.product_variants.update({
+    const serializedInventory = usesSerializedInventory(variant);
+    const serializedDecrease = oldStock - newStock;
+
+    if (serializedInventory && newStock > oldStock) {
+      throw new AdminInventoryServiceError(
+        "Không thể tăng counter của biến thể quản lý theo serial",
+        409
+      );
+    }
+
+    const serializedItemIds =
+      serializedInventory && serializedDecrease > 0
+        ? variant.product_items
+            .filter((item) => item.status === 1)
+            .slice(0, serializedDecrease)
+            .map((item) => item.item_id)
+        : [];
+
+    if (
+      serializedInventory &&
+      serializedDecrease > 0 &&
+      serializedItemIds.length !== serializedDecrease
+    ) {
+      throw new AdminInventoryServiceError(
+        "Số lượng serial khả dụng không đủ",
+        409
+      );
+    }
+
+    const stockUpdate = await tx.product_variants.updateMany({
       where: {
         variant_id: variantId,
+        stock_quantity: oldStock,
       },
       data: {
         stock_quantity: newStock,
       },
     });
+
+    if (stockUpdate.count !== 1) {
+      throw new AdminInventoryServiceError(
+        "Tồn kho đã được thay đổi bởi yêu cầu khác",
+        409
+      );
+    }
+
+    if (serializedItemIds.length > 0) {
+      const itemUpdate = await tx.product_items.updateMany({
+        where: {
+          item_id: {
+            in: serializedItemIds,
+          },
+          status: 1,
+        },
+        data: {
+          status: 6,
+        },
+      });
+
+      if (itemUpdate.count !== serializedItemIds.length) {
+        throw new AdminInventoryServiceError(
+          "Serial tồn kho đã được thay đổi bởi yêu cầu khác",
+          409
+        );
+      }
+    }
 
     await tx.audit_logs.create({
       data: {

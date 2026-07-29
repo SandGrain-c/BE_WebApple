@@ -12,6 +12,7 @@ import {
 import { mapOrderToDto } from "./order.mapper";
 import { validateVoucherForCheckout } from "../voucher/voucher.service";
 import { createPayOSPaymentLinkForOrder } from "../payment-transaction/payos-payment.service";
+import { restoreOrderInventory } from "./order-inventory-restoration";
 
 export class OrderServiceError extends Error {
   statusCode: number;
@@ -681,21 +682,7 @@ export const cancelMyOrderService = async (
       throw new OrderServiceError("Đơn hàng hiện không thể hủy", 400);
     }
 
-    /**
-     * Hoàn lại tồn kho cho các variant trong đơn.
-     */
-    for (const item of order.order_details) {
-      await tx.product_variants.update({
-        where: {
-          variant_id: item.variant_id,
-        },
-        data: {
-          stock_quantity: {
-            increment: item.quantity,
-          },
-        },
-      });
-    }
+    await restoreOrderInventory(tx, order.order_id);
 
     /**
      * Nếu đơn có dùng voucher:

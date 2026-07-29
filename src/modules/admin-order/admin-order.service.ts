@@ -14,6 +14,7 @@ import {
   mapAdminOrderListItemToDto,
   mapAdminOrderToDto,
 } from "./admin-order.mapper";
+import { restoreOrderInventory } from "../order/order-inventory-restoration";
 
 export class AdminOrderServiceError extends Error {
   statusCode: number;
@@ -232,36 +233,6 @@ const parseExpireLimit = (value?: number) => {
   }
 
   return Math.min(limit, 200);
-};
-/**
- * Hoàn lại tồn kho cho các sản phẩm trong đơn hàng.
- */
-const restoreOrderStock = async (
-  tx: Prisma.TransactionClient,
-  orderId: number
-) => {
-  const orderDetails = await tx.order_details.findMany({
-    where: {
-      order_id: orderId,
-    },
-    select: {
-      variant_id: true,
-      quantity: true,
-    },
-  });
-
-  for (const detail of orderDetails) {
-    await tx.product_variants.update({
-      where: {
-        variant_id: detail.variant_id,
-      },
-      data: {
-        stock_quantity: {
-          increment: detail.quantity,
-        },
-      },
-    });
-  }
 };
 /**
  * Hoàn voucher nếu đơn hàng có sử dụng voucher.
@@ -546,18 +517,7 @@ export const updateAdminOrderStatusService = async (
      * ALLOWED_TRANSITIONS đã chặn không cho hủy đơn ở Shipping/Completed.
      */
     if (newStatus === "Cancelled") {
-      for (const item of order.order_details) {
-        await tx.product_variants.update({
-          where: {
-            variant_id: item.variant_id,
-          },
-          data: {
-            stock_quantity: {
-              increment: item.quantity,
-            },
-          },
-        });
-      }
+      await restoreOrderInventory(tx, order.order_id);
 
       if (order.voucher_id) {
         await tx.voucher_usages.deleteMany({
@@ -756,7 +716,7 @@ export const expirePendingPaymentsService = async (
         },
       });
 
-      await restoreOrderStock(tx, order.order_id);
+      await restoreOrderInventory(tx, order.order_id);
 
       await restoreOrderVoucherUsage(tx, order.order_id);
 

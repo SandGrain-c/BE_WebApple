@@ -13,7 +13,7 @@ import {
 const handleAdminProductItemError = (
   error: unknown,
   res: Response,
-  next: NextFunction
+  _next: NextFunction
 ) => {
   if (error instanceof AdminProductItemServiceError) {
     return res.status(error.statusCode).json({
@@ -22,7 +22,10 @@ const handleAdminProductItemError = (
     });
   }
 
-  return next(error);
+  return res.status(500).json({
+    success: false,
+    message: "Xử lý serial sản phẩm thất bại",
+  });
 };
 
 const parseProductItemId = (req: Request) => {

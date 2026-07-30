@@ -21,6 +21,7 @@ import adminNotificationRoute from "../../modules/admin-notification/admin-notif
 import adminProductItemRoute from "../../modules/admin-product-item/admin-product-item.route";
 import adminStaffRoute from "../../modules/admin-staff/admin-staff.route";
 import { errorMiddleware } from "../../middlewares/error.middleware";
+import { integrationStatus } from "../../config/env";
 const checkRoute = (name: string, route: any) => {
   console.log(name, "=", typeof route);
 
@@ -62,6 +63,11 @@ adminApp.get("/api/admin/health", (_req, res) => {
   res.json({
     success: true,
     message: "Admin API is running",
+    data: {
+      database: process.env.DATABASE_URL ? "configured" : "misconfigured",
+      cloudinary: integrationStatus.cloudinary,
+      payos: integrationStatus.payos,
+    },
   });
 });
 

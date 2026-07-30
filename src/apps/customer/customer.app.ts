@@ -15,6 +15,7 @@ import shipmentCustomerRoute from "../../modules/shipment/shipment-customer.rout
 import paymentTransactionCustomerRoute from "../../modules/payment-transaction/payment-transaction-customer.route";
 import payOSPaymentRoute from "../../modules/payment-transaction/payos-payment.route";
 import userRoute from "../../modules/user/user.route";
+import { integrationStatus } from "../../config/env";
 const customerApp = express();
 
 // Cho phép Customer FE gọi API
@@ -33,6 +34,11 @@ customerApp.get("/api/health", (_req, res) => {
   res.json({
     success: true,
     message: "Customer API is running",
+    data: {
+      database: process.env.DATABASE_URL ? "configured" : "misconfigured",
+      cloudinary: integrationStatus.cloudinary,
+      payos: integrationStatus.payos,
+    },
   });
 });
 

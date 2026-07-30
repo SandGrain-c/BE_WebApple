@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { Prisma } from "../../generated/prisma/client";
 import { payOS, payOSConfig } from "../../config/payos";
+import { integrationStatus } from "../../config/env";
 import prisma from "../../utils/prisma";
 import type {
   PayOSPaymentLinkDto,
@@ -31,9 +32,9 @@ const INITIALIZATION_WAIT_TIMEOUT_MS = 15_000;
 const INITIALIZATION_POLL_INTERVAL_MS = 25;
 
 export class PayOSPaymentError extends Error {
-  readonly statusCode: 400 | 404 | 409;
+  readonly statusCode: 400 | 404 | 409 | 503;
 
-  constructor(message: string, statusCode: 400 | 404 | 409) {
+  constructor(message: string, statusCode: 400 | 404 | 409 | 503) {
     super(message);
     this.name = "PayOSPaymentError";
     this.statusCode = statusCode;
@@ -238,6 +239,13 @@ export async function createPayOSPaymentLinkForOrder(
   orderId: number,
   userId?: number,
 ): Promise<PayOSPaymentLinkDto> {
+  if (integrationStatus.payos !== "configured") {
+    throw new PayOSPaymentError(
+      `PayOS ${integrationStatus.payos}; thanh toán online bị tắt`,
+      503,
+    );
+  }
+
   validatePositiveInteger(orderId, "orderId");
 
   if (!userId) {
@@ -485,6 +493,13 @@ export async function handlePayOSWebhook(
   payload: unknown,
   ipAddress?: string,
 ): Promise<PayOSWebhookResponseDto> {
+  if (integrationStatus.payos !== "configured") {
+    throw new PayOSPaymentError(
+      `PayOS ${integrationStatus.payos}; webhook bị tắt`,
+      503,
+    );
+  }
+
   const webhookPayload = parseWebhookEnvelope(payload);
   let verifiedValue: unknown;
 

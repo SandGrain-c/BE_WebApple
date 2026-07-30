@@ -8,6 +8,7 @@ import type {
   UpdateBannerPayload,
 } from "./banner.dto";
 import { mapBannerToDto } from "./banner.mapper";
+import { integrationStatus } from "../../config/env";
 
 export class BannerServiceError extends Error {
   statusCode: number;
@@ -47,6 +48,13 @@ const parseBoolean = (
 const uploadBannerToCloudinary = (
   file: Express.Multer.File,
 ): Promise<UploadApiResponse> => {
+  if (integrationStatus.cloudinary !== "configured") {
+    throw new BannerServiceError(
+      `Cloudinary ${integrationStatus.cloudinary}; chức năng upload bị tắt`,
+      503,
+    );
+  }
+
   return new Promise((resolve, reject) => {
     const uploadStream = cloudinary.uploader.upload_stream(
       {

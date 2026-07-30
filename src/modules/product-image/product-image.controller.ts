@@ -221,6 +221,13 @@ export const createManyProductImagesController = async (req: Request, res: Respo
       data,
     });
   } catch (error) {
+    if (error instanceof ProductImageServiceError) {
+      return res.status(error.statusCode).json({
+        success: false,
+        message: error.message,
+      });
+    }
+
     const message =
       error instanceof Error ? error.message : "Upload nhiều ảnh sản phẩm thất bại";
 

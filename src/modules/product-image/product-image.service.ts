@@ -2,6 +2,7 @@
 
 import type { UploadApiResponse } from "cloudinary";
 import cloudinary from "../../config/cloudinary";
+import { integrationStatus } from "../../config/env";
 import prisma from "../../utils/prisma";
 import type {
   CreateProductImagePayload,
@@ -117,6 +118,13 @@ const uploadProductImageToCloudinary = (
   file: Express.Multer.File,
   folder: string,
 ): Promise<UploadApiResponse> => {
+  if (integrationStatus.cloudinary !== "configured") {
+    throw new ProductImageServiceError(
+      `Cloudinary ${integrationStatus.cloudinary}; chức năng upload bị tắt`,
+      503,
+    );
+  }
+
   return new Promise((resolve, reject) => {
     const uploadStream = cloudinary.uploader.upload_stream(
       {
@@ -139,6 +147,13 @@ const uploadProductImageToCloudinary = (
 const destroyCloudinaryImage = async (publicId?: string | null) => {
   if (!publicId) {
     return;
+  }
+
+  if (integrationStatus.cloudinary !== "configured") {
+    throw new ProductImageServiceError(
+      `Cloudinary ${integrationStatus.cloudinary}; chức năng xóa asset bị tắt`,
+      503,
+    );
   }
 
   try {
@@ -437,6 +452,17 @@ export const deleteProductImageService = async (
     throw new ProductImageServiceError("Không tìm thấy ảnh sản phẩm", 404);
   }
 
+  if (
+    options?.destroyCloudinary &&
+    existedImage.cloudinary_public_id &&
+    integrationStatus.cloudinary !== "configured"
+  ) {
+    throw new ProductImageServiceError(
+      `Cloudinary ${integrationStatus.cloudinary}; chức năng xóa asset bị tắt`,
+      503,
+    );
+  }
+
   const deletedImage = await prisma.product_images.update({
     where: {
       image_id: imageId,
@@ -462,6 +488,13 @@ const uploadBufferToCloudinary = async (
   file: Express.Multer.File,
   folder: string
 ) => {
+  if (integrationStatus.cloudinary !== "configured") {
+    throw new ProductImageServiceError(
+      `Cloudinary ${integrationStatus.cloudinary}; chức năng upload bị tắt`,
+      503,
+    );
+  }
+
   const base64File = file.buffer.toString("base64");
   const dataUri = `data:${file.mimetype};base64,${base64File}`;
 

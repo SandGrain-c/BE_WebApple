@@ -1,29 +1,20 @@
 // src/config/payos.ts
 
 import { PayOS } from "@payos/node";
+import { env, integrationStatus } from "./env";
 
-const {
-  PAYOS_CLIENT_ID,
-  PAYOS_API_KEY,
-  PAYOS_CHECKSUM_KEY,
-  PAYOS_RETURN_URL,
-  PAYOS_CANCEL_URL,
-} = process.env;
-
-if (!PAYOS_CLIENT_ID || !PAYOS_API_KEY || !PAYOS_CHECKSUM_KEY) {
-  console.warn(
-    "Thiếu PAYOS_CLIENT_ID, PAYOS_API_KEY hoặc PAYOS_CHECKSUM_KEY trong .env"
-  );
+if (integrationStatus.payos !== "configured") {
+  console.warn(`[config] payos=${integrationStatus.payos}; COD vẫn khả dụng`);
 }
 
-// PayOS client: đối tượng dùng để gọi API PayOS
 export const payOS = new PayOS({
-  clientId: PAYOS_CLIENT_ID || "",
-  apiKey: PAYOS_API_KEY || "",
-  checksumKey: PAYOS_CHECKSUM_KEY || "",
+  clientId: env.PAYOS_CLIENT_ID,
+  apiKey: env.PAYOS_API_KEY,
+  checksumKey: env.PAYOS_CHECKSUM_KEY,
 });
 
 export const payOSConfig = {
-  returnUrl: PAYOS_RETURN_URL || "http://localhost:3000/checkout/payment-success",
-  cancelUrl: PAYOS_CANCEL_URL || "http://localhost:3000/checkout/payment-cancel",
-};
+  returnUrl: env.PAYOS_RETURN_URL,
+  cancelUrl: env.PAYOS_CANCEL_URL,
+  webhookUrl: env.PAYOS_WEBHOOK_URL,
+} as const;

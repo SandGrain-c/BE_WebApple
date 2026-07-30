@@ -44,27 +44,26 @@ export type AdminShipmentListQueryDto = {
   search?: string;
   status?: ShipmentStatus;
   orderId?: number;
-  page?: number;
-  limit?: number;
+  page: number;
+  limit: number;
   sort?: "newest" | "oldest" | "status_asc" | "status_desc";
 };
 
 export type CreateShipmentDto = {
   orderId: number;
-  shippingProvider?: string;
-  trackingCode?: string;
-  status?: ShipmentStatus;
-  location?: string;
-  note?: string;
+  shippingProvider?: string | null;
+  trackingCode?: string | null;
+  location?: string | null;
+  note?: string | null;
 };
 
 export type UpdateShipmentDto = {
-  shippingProvider?: string | null;
-  trackingCode?: string | null;
+  shippingProvider?: string;
+  trackingCode?: string;
 };
 
 export type UpdateShipmentStatusDto = {
   status: ShipmentStatus;
-  location?: string;
-  note?: string;
+  location?: string | null;
+  note?: string | null;
 };

@@ -1,33 +1,23 @@
 // src/modules/shipment/shipment.service.ts
 
 import prisma from "../../utils/prisma";
+import { Prisma } from "../../generated/prisma/client";
 import type {
-  AdminShipmentListQueryDto,
-  CreateShipmentDto,
   ShipmentStatus,
-  UpdateShipmentDto,
-  UpdateShipmentStatusDto,
 } from "./shipment.dto";
 import { mapShipmentToDto } from "./shipment.mapper";
-
-const SHIPMENT_STATUSES: ShipmentStatus[] = [
-  "Pending",
-  "Preparing",
-  "Shipped",
-  "InTransit",
-  "Delivered",
-  "Failed",
-  "Cancelled",
-];
-
-export class CustomerShipmentAccessError extends Error {
-  readonly statusCode: number;
-
-  constructor(message: string, statusCode: number) {
-    super(message);
-    this.statusCode = statusCode;
-  }
-}
+import {
+  CustomerShipmentAccessError,
+  shipmentConflictError,
+  shipmentNotFoundError,
+  shipmentValidationError,
+} from "./shipment.error";
+import {
+  parseAdminShipmentListQuery,
+  parseCreateShipmentBody,
+  parseUpdateShipmentBody,
+  parseUpdateShipmentStatusBody,
+} from "./shipment.validation";
 
 const VALID_SHIPMENT_TRANSITIONS: Record<ShipmentStatus, ShipmentStatus[]> = {
   Pending: ["Preparing", "Cancelled"],
@@ -39,21 +29,35 @@ const VALID_SHIPMENT_TRANSITIONS: Record<ShipmentStatus, ShipmentStatus[]> = {
   Cancelled: [],
 };
 
-function normalizeText(value?: string | null) {
-  // Chuẩn hóa chuỗi: bỏ khoảng trắng thừa
-  return value?.trim() || null;
-}
-
-function validateShipmentStatus(status?: string): asserts status is ShipmentStatus {
-  if (!status || !SHIPMENT_STATUSES.includes(status as ShipmentStatus)) {
-    throw new Error("Trạng thái vận chuyển không hợp lệ");
-  }
-}
-
 function validatePositiveId(value: number, fieldName: string) {
-  if (!Number.isFinite(value) || value <= 0) {
-    throw new Error(`${fieldName} không hợp lệ`);
+  if (
+    !Number.isFinite(value) ||
+    !Number.isInteger(value) ||
+    value <= 0
+  ) {
+    throw shipmentValidationError(`${fieldName} không hợp lệ`);
   }
+}
+
+function isShipmentStatus(value: string): value is ShipmentStatus {
+  return Object.hasOwn(VALID_SHIPMENT_TRANSITIONS, value);
+}
+
+function getStoredShipmentStatus(value: string) {
+  if (!isShipmentStatus(value)) {
+    throw shipmentConflictError(
+      "Trạng thái vận chuyển hiện tại không hợp lệ",
+    );
+  }
+
+  return value;
+}
+
+function isPrismaUniqueConstraintError(error: unknown) {
+  return (
+    error instanceof Prisma.PrismaClientKnownRequestError &&
+    error.code === "P2002"
+  );
 }
 
 function getOrderStatusByShipmentStatus(status: ShipmentStatus) {
@@ -66,7 +70,7 @@ function getOrderStatusByShipmentStatus(status: ShipmentStatus) {
 }
 
 async function writeAuditLog(params: {
-  tx?: any;
+  tx: Prisma.TransactionClient;
   actorId?: number;
   action: string;
   entityId?: number;
@@ -74,10 +78,7 @@ async function writeAuditLog(params: {
   newValue?: unknown;
   ipAddress?: string;
 }) {
-  // Audit log: ghi lại thao tác admin để phục vụ kiểm tra sau này
-  const client = params.tx ?? prisma;
-
-  await client.audit_logs.create({
+  await params.tx.audit_logs.create({
     data: {
       user_id: params.actorId,
       action: params.action,
@@ -112,21 +113,20 @@ function getShipmentInclude() {
   };
 }
 
-export async function getAdminShipments(query: AdminShipmentListQueryDto) {
-  const page = Number(query.page) > 0 ? Number(query.page) : 1;
-  const limit = Number(query.limit) > 0 ? Number(query.limit) : 10;
+export async function getAdminShipments(requestQuery: unknown) {
+  const query = parseAdminShipmentListQuery(requestQuery);
+  const page = query.page;
+  const limit = query.limit;
   const skip = (page - 1) * limit;
 
-  const where: any = {};
+  const where: Prisma.shipmentsWhereInput = {};
 
   if (query.status) {
-    validateShipmentStatus(query.status);
     where.status = query.status;
   }
 
-  if (query.orderId) {
-    validatePositiveId(Number(query.orderId), "orderId");
-    where.order_id = Number(query.orderId);
+  if (query.orderId !== undefined) {
+    where.order_id = query.orderId;
   }
 
   if (query.search?.trim()) {
@@ -216,122 +216,161 @@ export async function getAdminShipmentById(shipmentId: number) {
   });
 
   if (!shipment) {
-    throw new Error("Không tìm thấy thông tin vận chuyển");
+    throw shipmentNotFoundError("Không tìm thấy thông tin vận chuyển");
   }
 
   return mapShipmentToDto(shipment);
 }
 
 export async function createAdminShipment(
-  dto: CreateShipmentDto,
+  requestBody: unknown,
   actorId?: number,
   ipAddress?: string
 ) {
-  const orderId = Number(dto.orderId);
-  const shippingProvider = normalizeText(dto.shippingProvider);
-  const trackingCode = normalizeText(dto.trackingCode);
-  const status = dto.status ?? "Pending";
-  const location = normalizeText(dto.location);
-  const note = normalizeText(dto.note);
+  const dto = parseCreateShipmentBody(requestBody);
+  const initialStatus: ShipmentStatus = "Pending";
 
-  validatePositiveId(orderId, "orderId");
-  validateShipmentStatus(status);
+  try {
+    const createdShipment = await prisma.$transaction(async (tx) => {
+      const lockedOrders = await tx.$queryRaw<Array<{ order_id: number }>>`
+        SELECT order_id
+        FROM orders
+        WHERE order_id = ${dto.orderId}
+        FOR UPDATE
+      `;
 
-  const order = await prisma.orders.findUnique({
-    where: {
-      order_id: orderId,
-    },
-  });
+      if (lockedOrders.length !== 1) {
+        throw shipmentNotFoundError("Không tìm thấy đơn hàng");
+      }
 
-  if (!order) {
-    throw new Error("Không tìm thấy đơn hàng");
-  }
-
-  if (["Cancelled", "Completed"].includes(order.order_status)) {
-    throw new Error("Không thể tạo vận chuyển cho đơn hàng đã hoàn tất hoặc đã hủy");
-  }
-
-  if (["PendingPayment", "PendingConfirmation"].includes(order.order_status)) {
-    throw new Error("Chỉ tạo vận chuyển sau khi đơn hàng đã được xác nhận");
-  }
-
-  const existedShipment = await prisma.shipments.findFirst({
-    where: {
-      order_id: orderId,
-    },
-  });
-
-  if (existedShipment) {
-    throw new Error("Đơn hàng này đã có thông tin vận chuyển");
-  }
-
-  if (trackingCode) {
-    const duplicatedTrackingCode = await prisma.shipments.findFirst({
-      where: {
-        tracking_code: trackingCode,
-      },
-    });
-
-    if (duplicatedTrackingCode) {
-      throw new Error("Mã vận đơn đã tồn tại");
-    }
-  }
-
-  const createdShipment = await prisma.$transaction(async (tx) => {
-    const shipment = await tx.shipments.create({
-      data: {
-        order_id: orderId,
-        shipping_provider: shippingProvider,
-        tracking_code: trackingCode,
-        status,
-      },
-    });
-
-    await tx.shipment_status_history.create({
-      data: {
-        shipment_id: shipment.shipment_id,
-        status,
-        location,
-        note: note ?? "Tạo thông tin vận chuyển",
-      },
-    });
-
-    // Khi tạo shipment, đơn hàng chuyển sang Processing nếu đang Confirmed
-    if (order.order_status === "Confirmed") {
-      await tx.orders.update({
+      const order = await tx.orders.findUnique({
         where: {
-          order_id: orderId,
+          order_id: dto.orderId,
         },
-        data: {
-          order_status: "Processing",
-          updated_at: new Date(),
+        include: {
+          payment_transactions: {
+            where: {
+              payment_type: "Payment",
+            },
+            orderBy: {
+              created_at: "desc",
+            },
+          },
         },
       });
 
-      await tx.order_status_history.create({
-        data: {
-          order_id: orderId,
-          old_status: order.order_status,
-          new_status: "Processing",
-          changed_by: actorId,
-          note: "Tạo thông tin vận chuyển",
+      if (!order) {
+        throw shipmentNotFoundError("Không tìm thấy đơn hàng");
+      }
+
+      if (
+        !["Confirmed", "Processing", "Shipping"].includes(
+          order.order_status,
+        )
+      ) {
+        throw shipmentValidationError(
+          "Đơn hàng chưa đủ điều kiện tạo vận chuyển",
+        );
+      }
+
+      const payment = order.payment_transactions[0];
+
+      if (!payment) {
+        throw shipmentValidationError(
+          "Đơn hàng chưa có thông tin thanh toán hợp lệ",
+        );
+      }
+
+      if (payment.gateway !== "COD" && payment.status !== "Success") {
+        throw shipmentValidationError(
+          "Đơn hàng trực tuyến chưa thanh toán thành công",
+        );
+      }
+
+      const existedShipment = await tx.shipments.findFirst({
+        where: {
+          order_id: dto.orderId,
         },
       });
-    }
 
-    await writeAuditLog({
-      tx,
-      actorId,
-      action: "CREATE_SHIPMENT",
-      entityId: shipment.shipment_id,
-      newValue: shipment,
-      ipAddress,
+      if (existedShipment) {
+        throw shipmentConflictError(
+          "Đơn hàng này đã có thông tin vận chuyển",
+        );
+      }
+
+      if (dto.trackingCode) {
+        const duplicatedTrackingCode = await tx.shipments.findFirst({
+          where: {
+            tracking_code: dto.trackingCode,
+          },
+        });
+
+        if (duplicatedTrackingCode) {
+          throw shipmentConflictError("Mã vận đơn đã tồn tại");
+        }
+      }
+
+      const shipment = await tx.shipments.create({
+        data: {
+          order_id: dto.orderId,
+          shipping_provider: dto.shippingProvider ?? null,
+          tracking_code: dto.trackingCode ?? null,
+          status: initialStatus,
+        },
+      });
+
+      await tx.shipment_status_history.create({
+        data: {
+          shipment_id: shipment.shipment_id,
+          status: initialStatus,
+          location: dto.location ?? null,
+          note: dto.note ?? "Tạo thông tin vận chuyển",
+        },
+      });
+
+      if (order.order_status === "Confirmed") {
+        await tx.orders.update({
+          where: {
+            order_id: dto.orderId,
+          },
+          data: {
+            order_status: "Processing",
+            updated_at: new Date(),
+          },
+        });
+
+        await tx.order_status_history.create({
+          data: {
+            order_id: dto.orderId,
+            old_status: order.order_status,
+            new_status: "Processing",
+            changed_by: actorId,
+            note: "Tạo thông tin vận chuyển",
+          },
+        });
+      }
+
+      await writeAuditLog({
+        tx,
+        actorId,
+        action: "CREATE_SHIPMENT",
+        entityId: shipment.shipment_id,
+        newValue: shipment,
+        ipAddress,
+      });
+
+      return shipment;
     });
 
-    return shipment;
-  });
+    return getAdminShipmentById(createdShipment.shipment_id);
+  } catch (error) {
+    if (isPrismaUniqueConstraintError(error)) {
+      throw shipmentConflictError("Mã vận đơn đã tồn tại");
+    }
 
-  return getAdminShipmentById(createdShipment.shipment_id);
+    throw error;
+  }
 }
 /**
  * Khi vận chuyển giao hàng thành công:
@@ -342,7 +381,7 @@ export async function createAdminShipment(
  * COD = Cash On Delivery, nghĩa là thanh toán khi nhận hàng.
  */
 const markCODPaymentSuccessWhenDelivered = async (
-  tx: any,
+  tx: Prisma.TransactionClient,
   orderId: number,
   adminUserId?: number
 ) => {
@@ -386,11 +425,12 @@ const markCODPaymentSuccessWhenDelivered = async (
 };
 export async function updateAdminShipment(
   shipmentId: number,
-  dto: UpdateShipmentDto,
+  requestBody: unknown,
   actorId?: number,
   ipAddress?: string
 ) {
   validatePositiveId(shipmentId, "shipmentId");
+  const dto = parseUpdateShipmentBody(requestBody);
 
   const currentShipment = await prisma.shipments.findUnique({
     where: {
@@ -399,79 +439,78 @@ export async function updateAdminShipment(
   });
 
   if (!currentShipment) {
-    throw new Error("Không tìm thấy thông tin vận chuyển");
+    throw shipmentNotFoundError("Không tìm thấy thông tin vận chuyển");
   }
 
   if (["Delivered", "Cancelled"].includes(currentShipment.status)) {
-    throw new Error("Không thể cập nhật vận chuyển đã hoàn tất hoặc đã hủy");
+    throw shipmentValidationError(
+      "Không thể cập nhật vận chuyển đã hoàn tất hoặc đã hủy",
+    );
   }
 
-  const updateData: any = {};
+  const updateData: Prisma.shipmentsUncheckedUpdateInput = {};
 
   if (dto.shippingProvider !== undefined) {
-    updateData.shipping_provider = normalizeText(dto.shippingProvider);
+    updateData.shipping_provider = dto.shippingProvider;
   }
 
   if (dto.trackingCode !== undefined) {
-    const trackingCode = normalizeText(dto.trackingCode);
-
-    if (trackingCode) {
-      const duplicatedTrackingCode = await prisma.shipments.findFirst({
-        where: {
-          shipment_id: {
-            not: shipmentId,
-          },
-          tracking_code: trackingCode,
+    const duplicatedTrackingCode = await prisma.shipments.findFirst({
+      where: {
+        shipment_id: {
+          not: shipmentId,
         },
-      });
+        tracking_code: dto.trackingCode,
+      },
+    });
 
-      if (duplicatedTrackingCode) {
-        throw new Error("Mã vận đơn đã tồn tại");
-      }
+    if (duplicatedTrackingCode) {
+      throw shipmentConflictError("Mã vận đơn đã tồn tại");
     }
 
-    updateData.tracking_code = trackingCode;
+    updateData.tracking_code = dto.trackingCode;
   }
 
-  if (Object.keys(updateData).length === 0) {
-    throw new Error("Không có dữ liệu cần cập nhật");
+  try {
+    const updatedShipment = await prisma.$transaction(async (tx) => {
+      const updated = await tx.shipments.update({
+        where: {
+          shipment_id: shipmentId,
+        },
+        data: updateData,
+      });
+
+      await writeAuditLog({
+        tx,
+        actorId,
+        action: "UPDATE_SHIPMENT",
+        entityId: shipmentId,
+        oldValue: currentShipment,
+        newValue: updated,
+        ipAddress,
+      });
+
+      return updated;
+    });
+
+    return getAdminShipmentById(updatedShipment.shipment_id);
+  } catch (error) {
+    if (isPrismaUniqueConstraintError(error)) {
+      throw shipmentConflictError("Mã vận đơn đã tồn tại");
+    }
+
+    throw error;
   }
-
-  const updatedShipment = await prisma.$transaction(async (tx) => {
-    const updated = await tx.shipments.update({
-      where: {
-        shipment_id: shipmentId,
-      },
-      data: updateData,
-    });
-
-    await writeAuditLog({
-      tx,
-      actorId,
-      action: "UPDATE_SHIPMENT",
-      entityId: shipmentId,
-      oldValue: currentShipment,
-      newValue: updated,
-      ipAddress,
-    });
-
-    return updated;
-  });
-
-  return getAdminShipmentById(updatedShipment.shipment_id);
 }
 
 export async function updateAdminShipmentStatus(
   shipmentId: number,
-  dto: UpdateShipmentStatusDto,
+  requestBody: unknown,
   actorId?: number,
   ipAddress?: string
 ) {
   validatePositiveId(shipmentId, "shipmentId");
-  validateShipmentStatus(dto.status);
-
-  const location = normalizeText(dto.location);
-  const note = normalizeText(dto.note);
+  const dto = parseUpdateShipmentStatusBody(requestBody);
 
   const currentShipment = await prisma.shipments.findUnique({
     where: {
@@ -483,42 +522,63 @@ export async function updateAdminShipmentStatus(
   });
 
   if (!currentShipment) {
-    throw new Error("Không tìm thấy thông tin vận chuyển");
+    throw shipmentNotFoundError("Không tìm thấy thông tin vận chuyển");
   }
 
-  const oldStatus = currentShipment.status as ShipmentStatus;
+  const oldStatus = getStoredShipmentStatus(currentShipment.status);
   const newStatus = dto.status;
 
   if (oldStatus === newStatus) {
-    throw new Error("Trạng thái vận chuyển không thay đổi");
+    throw shipmentConflictError("Trạng thái vận chuyển không thay đổi");
   }
 
   const allowedNextStatuses = VALID_SHIPMENT_TRANSITIONS[oldStatus];
 
   if (!allowedNextStatuses.includes(newStatus)) {
-    throw new Error(`Không thể chuyển trạng thái từ ${oldStatus} sang ${newStatus}`);
+    throw shipmentValidationError(
+      `Không thể chuyển trạng thái từ ${oldStatus} sang ${newStatus}`,
+    );
   }
 
   if (currentShipment.orders.order_status === "Cancelled") {
-    throw new Error("Không thể cập nhật vận chuyển cho đơn hàng đã hủy");
+    throw shipmentValidationError(
+      "Không thể cập nhật vận chuyển cho đơn hàng đã hủy",
+    );
   }
 
   const updatedShipment = await prisma.$transaction(async (tx) => {
-    const updated = await tx.shipments.update({
+    const claimedShipment = await tx.shipments.updateMany({
       where: {
         shipment_id: shipmentId,
+        status: oldStatus,
       },
       data: {
         status: newStatus,
       },
     });
 
+    if (claimedShipment.count !== 1) {
+      throw shipmentConflictError(
+        "Trạng thái vận chuyển đã được thay đổi",
+      );
+    }
+
+    const updated = await tx.shipments.findUnique({
+      where: {
+        shipment_id: shipmentId,
+      },
+    });
+
+    if (!updated) {
+      throw new Error("Shipment disappeared after status transition");
+    }
+
     await tx.shipment_status_history.create({
       data: {
         shipment_id: shipmentId,
         status: newStatus,
-        location,
-        note,
+        location: dto.location ?? null,
+        note: dto.note ?? null,
       },
     });
 
@@ -600,26 +660,45 @@ export async function cancelAdminShipment(
   });
 
   if (!currentShipment) {
-    throw new Error("Không tìm thấy thông tin vận chuyển");
+    throw shipmentNotFoundError("Không tìm thấy thông tin vận chuyển");
   }
 
   if (currentShipment.status === "Delivered") {
-    throw new Error("Không thể hủy vận chuyển đã giao thành công");
+    throw shipmentValidationError(
+      "Không thể hủy vận chuyển đã giao thành công",
+    );
   }
 
   if (currentShipment.status === "Cancelled") {
-    throw new Error("Vận chuyển đã bị hủy trước đó");
+    throw shipmentConflictError("Vận chuyển đã bị hủy trước đó");
   }
 
   const updatedShipment = await prisma.$transaction(async (tx) => {
-    const updated = await tx.shipments.update({
+    const claimedShipment = await tx.shipments.updateMany({
       where: {
         shipment_id: shipmentId,
+        status: currentShipment.status,
       },
       data: {
         status: "Cancelled",
       },
     });
+
+    if (claimedShipment.count !== 1) {
+      throw shipmentConflictError(
+        "Trạng thái vận chuyển đã được thay đổi",
+      );
+    }
+
+    const updated = await tx.shipments.findUnique({
+      where: {
+        shipment_id: shipmentId,
+      },
+    });
+
+    if (!updated) {
+      throw new Error("Shipment disappeared after cancellation");
+    }
 
     await tx.shipment_status_history.create({
       data: {

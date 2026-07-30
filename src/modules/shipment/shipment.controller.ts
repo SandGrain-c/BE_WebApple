@@ -1,8 +1,7 @@
 // src/modules/shipment/shipment.controller.ts
 
-import type { Request, Response } from "express";
+import type { NextFunction, Request, Response } from "express";
 import {
-  CustomerShipmentAccessError,
   cancelAdminShipment,
   createAdminShipment,
   getAdminShipmentById,
@@ -12,10 +11,8 @@ import {
   updateAdminShipment,
   updateAdminShipmentStatus,
 } from "./shipment.service";
-
-function getErrorMessage(error: unknown) {
-  return error instanceof Error ? error.message : "Đã xảy ra lỗi hệ thống";
-}
+import { ShipmentServiceError } from "./shipment.error";
+import { parsePositiveRouteId } from "./shipment.validation";
 
 function getActorId(req: Request) {
   // user được authMiddleware gắn vào request sau khi verify JWT
@@ -26,22 +23,28 @@ function getUserId(req: Request) {
   return req.user?.userId;
 }
 
-function getCustomerErrorStatus(error: unknown) {
-  return error instanceof CustomerShipmentAccessError
-    ? error.statusCode
-    : 400;
+function handleShipmentError(
+  error: unknown,
+  res: Response,
+  next: NextFunction,
+) {
+  if (error instanceof ShipmentServiceError) {
+    return res.status(error.statusCode).json({
+      success: false,
+      message: error.message,
+    });
+  }
+
+  return next(error);
 }
 
-export async function getAdminShipmentsController(req: Request, res: Response) {
+export async function getAdminShipmentsController(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+) {
   try {
-    const data = await getAdminShipments({
-      search: req.query.search as string | undefined,
-      status: req.query.status as any,
-      orderId: req.query.orderId ? Number(req.query.orderId) : undefined,
-      page: req.query.page ? Number(req.query.page) : undefined,
-      limit: req.query.limit ? Number(req.query.limit) : undefined,
-      sort: req.query.sort as any,
-    });
+    const data = await getAdminShipments(req.query);
 
     return res.json({
       success: true,
@@ -49,19 +52,20 @@ export async function getAdminShipmentsController(req: Request, res: Response) {
       data,
     });
   } catch (error) {
-    return res.status(400).json({
-      success: false,
-      message: getErrorMessage(error),
-    });
+    return handleShipmentError(error, res, next);
   }
 }
 
 export async function getAdminShipmentByIdController(
   req: Request,
-  res: Response
+  res: Response,
+  next: NextFunction,
 ) {
   try {
-    const shipmentId = Number(req.params.shipmentId);
+    const shipmentId = parsePositiveRouteId(
+      req.params.shipmentId,
+      "shipmentId",
+    );
     const data = await getAdminShipmentById(shipmentId);
 
     return res.json({
@@ -70,16 +74,14 @@ export async function getAdminShipmentByIdController(
       data,
     });
   } catch (error) {
-    return res.status(400).json({
-      success: false,
-      message: getErrorMessage(error),
-    });
+    return handleShipmentError(error, res, next);
   }
 }
 
 export async function createAdminShipmentController(
   req: Request,
-  res: Response
+  res: Response,
+  next: NextFunction,
 ) {
   try {
     const data = await createAdminShipment(
@@ -94,19 +96,20 @@ export async function createAdminShipmentController(
       data,
     });
   } catch (error) {
-    return res.status(400).json({
-      success: false,
-      message: getErrorMessage(error),
-    });
+    return handleShipmentError(error, res, next);
   }
 }
 
 export async function updateAdminShipmentController(
   req: Request,
-  res: Response
+  res: Response,
+  next: NextFunction,
 ) {
   try {
-    const shipmentId = Number(req.params.shipmentId);
+    const shipmentId = parsePositiveRouteId(
+      req.params.shipmentId,
+      "shipmentId",
+    );
 
     const data = await updateAdminShipment(
       shipmentId,
@@ -121,19 +124,20 @@ export async function updateAdminShipmentController(
       data,
     });
   } catch (error) {
-    return res.status(400).json({
-      success: false,
-      message: getErrorMessage(error),
-    });
+    return handleShipmentError(error, res, next);
   }
 }
 
 export async function updateAdminShipmentStatusController(
   req: Request,
-  res: Response
+  res: Response,
+  next: NextFunction,
 ) {
   try {
-    const shipmentId = Number(req.params.shipmentId);
+    const shipmentId = parsePositiveRouteId(
+      req.params.shipmentId,
+      "shipmentId",
+    );
 
     const data = await updateAdminShipmentStatus(
       shipmentId,
@@ -148,19 +152,20 @@ export async function updateAdminShipmentStatusController(
       data,
     });
   } catch (error) {
-    return res.status(400).json({
-      success: false,
-      message: getErrorMessage(error),
-    });
+    return handleShipmentError(error, res, next);
   }
 }
 
 export async function cancelAdminShipmentController(
   req: Request,
-  res: Response
+  res: Response,
+  next: NextFunction,
 ) {
   try {
-    const shipmentId = Number(req.params.shipmentId);
+    const shipmentId = parsePositiveRouteId(
+      req.params.shipmentId,
+      "shipmentId",
+    );
 
     const data = await cancelAdminShipment(
       shipmentId,
@@ -174,16 +179,14 @@ export async function cancelAdminShipmentController(
       data,
     });
   } catch (error) {
-    return res.status(400).json({
-      success: false,
-      message: getErrorMessage(error),
-    });
+    return handleShipmentError(error, res, next);
   }
 }
 
 export async function getCustomerShipmentByOrderIdController(
   req: Request,
-  res: Response
+  res: Response,
+  next: NextFunction,
 ) {
   try {
     const userId = getUserId(req);
@@ -195,7 +198,7 @@ export async function getCustomerShipmentByOrderIdController(
       });
     }
 
-    const orderId = Number(req.params.orderId);
+    const orderId = parsePositiveRouteId(req.params.orderId, "orderId");
     const data = await getCustomerShipmentByOrderId(orderId, userId);
 
     return res.json({
@@ -204,16 +207,14 @@ export async function getCustomerShipmentByOrderIdController(
       data,
     });
   } catch (error) {
-    return res.status(getCustomerErrorStatus(error)).json({
-      success: false,
-      message: getErrorMessage(error),
-    });
+    return handleShipmentError(error, res, next);
   }
 }
 
 export async function getCustomerShipmentByIdController(
   req: Request,
-  res: Response
+  res: Response,
+  next: NextFunction,
 ) {
   try {
     const userId = getUserId(req);
@@ -225,7 +226,10 @@ export async function getCustomerShipmentByIdController(
       });
     }
 
-    const shipmentId = Number(req.params.shipmentId);
+    const shipmentId = parsePositiveRouteId(
+      req.params.shipmentId,
+      "shipmentId",
+    );
     const data = await getCustomerShipmentById(shipmentId, userId);
 
     return res.json({
@@ -234,9 +238,6 @@ export async function getCustomerShipmentByIdController(
       data,
     });
   } catch (error) {
-    return res.status(getCustomerErrorStatus(error)).json({
-      success: false,
-      message: getErrorMessage(error),
-    });
+    return handleShipmentError(error, res, next);
   }
 }

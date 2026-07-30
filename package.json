@@ -19,6 +19,8 @@
     "test:inventory-serial": "NODE_ENV=test vitest run tests/api/inventory tests/api/warehouse",
     "test:shipment-delivery": "NODE_ENV=test vitest run tests/api/shipment",
     "test:security": "NODE_ENV=test vitest run tests/security",
+    "e2e:db:reset": "tsx tests/e2e-support/reset-e2e-db.ts",
+    "e2e:verify-checkout": "tsx tests/e2e-support/verify-checkout.ts",
     "dev": "ts-node-dev --respawn --transpile-only src/server.ts",
     "dev:customer": "tsx watch src/apps/customer/customer.server.ts",
     "dev:admin": "tsx watch src/apps/admin/admin.server.ts",

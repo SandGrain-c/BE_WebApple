@@ -61,6 +61,64 @@ describe.sequential("Inventory and serial query integration", () => {
     ]);
   });
 
+  test("INV-QRY-002A frontend newest and oldest sort options return selectable variants", async () => {
+    const scenario = await createInventorySerialScenario(prisma, {
+      label: "querynewestsort",
+    });
+    const token = createFixtureToken(manifest.accounts.admin_active);
+    const endpoint = "/api/admin/inventory/variants";
+    const newestResponse = await authorize(
+      request(adminApp).get(endpoint).query({
+        productId: scenario.product.product_id,
+        sort: "newest",
+        limit: 100,
+      }),
+      token,
+    );
+    const oldestResponse = await authorize(
+      request(adminApp).get(endpoint).query({
+        productId: scenario.product.product_id,
+        sort: "oldest",
+        limit: 100,
+      }),
+      token,
+    );
+    const variantIds = [
+      scenario.serializedVariant.variant_id,
+      scenario.healthyVariant.variant_id,
+      scenario.lowStockVariant.variant_id,
+      scenario.outOfStockVariant.variant_id,
+    ];
+
+    expect([newestResponse.status, oldestResponse.status]).toEqual([200, 200]);
+    expect(
+      newestResponse.body.data.items.map(
+        (item: { variantId: number }) => item.variantId,
+      ),
+    ).toEqual([...variantIds].sort((left, right) => right - left));
+    expect(
+      oldestResponse.body.data.items.map(
+        (item: { variantId: number }) => item.variantId,
+      ),
+    ).toEqual([...variantIds].sort((left, right) => left - right));
+  });
+
+  test("INV-QRY-002B frontend default newest receipt sort returns receipt data", async () => {
+    const response = await authorize(
+      request(adminApp).get("/api/admin/inventory/receipts").query({
+        sort: "newest",
+        limit: 100,
+      }),
+      createFixtureToken(manifest.accounts.warehouse_active),
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.body.data).toMatchObject({
+      items: expect.any(Array),
+      pagination: expect.objectContaining({ limit: 100 }),
+    });
+  });
+
   test("INV-QRY-003 authorized product and SKU filters return safe variant inventory data", async () => {
     const scenario = await createInventorySerialScenario(prisma, {
       label: "queryfilters",

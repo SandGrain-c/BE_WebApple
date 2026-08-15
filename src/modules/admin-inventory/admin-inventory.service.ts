@@ -267,6 +267,8 @@ const parseInventoryVariantQuery = (rawQuery: unknown) => {
     "out-of-stock",
   ];
   const allowedSorts = [
+    "newest",
+    "oldest",
     "stock_asc",
     "stock_desc",
     "sku_asc",
@@ -311,7 +313,7 @@ const parseInventoryReceiptQuery = (rawQuery: unknown) => {
     fallback: 10,
   });
   const sort = rawQuery.sort;
-  const allowedSorts = ["oldest", "amount_asc", "amount_desc"];
+  const allowedSorts = ["newest", "oldest", "amount_asc", "amount_desc"];
 
   if (
     sort !== undefined &&
@@ -404,6 +406,9 @@ export const getInventoryVariantsService = async (
   };
 
   switch (query.sort) {
+    case "oldest":
+      orderBy = { variant_id: "asc" };
+      break;
     case "stock_asc":
       orderBy = { stock_quantity: "asc" };
       break;

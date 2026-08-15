@@ -76,13 +76,13 @@ assignment, reservation/release, reconciliation, or inventory history.
 `GET /api/admin/inventory/variants` currently accepts:
 
 - `search`: matched case-insensitively against SKU, variant name, or product name.
-- `productId`: converted with `Number`.
+- `productId`: positive integer query string.
 - `stockStatus`: recognizes `out-of-stock`, `low-stock`, and `in-stock`.
-- `lowStockThreshold`: non-negative integer after numeric coercion; default `5`.
-- `page`: numeric coercion and silent default/clamp to `1`.
-- `limit`: numeric coercion, silent default to `10`, and cap at `100`.
-- `sort`: recognizes `stock_asc`, `stock_desc`, `sku_asc`, and `sku_desc`;
-  all other values silently use descending variant ID.
+- `lowStockThreshold`: non-negative integer query string; default `5`.
+- `page`: positive integer query string; default `1`.
+- `limit`: positive integer query string; default `10` and capped at `100`.
+- `sort`: recognizes `newest`, `oldest`, `stock_asc`, `stock_desc`, `sku_asc`,
+  and `sku_desc`. Invalid values return controlled `400`.
 
 Success uses the standard envelope:
 
@@ -126,9 +126,8 @@ also exposes total and `InStock` item counts, which can reveal counter drift.
 #### Receipt query and detail
 
 `GET /api/admin/inventory/receipts` accepts `search`, `dateFrom`, `dateTo`,
-`page`, `limit`, and sort values `oldest`, `amount_asc`, or `amount_desc`.
-Unrecognized sort uses newest-first. Pagination is coerced/defaulted as above.
-Invalid dates return controlled `400`.
+`page`, `limit`, and sort values `newest`, `oldest`, `amount_asc`, or
+`amount_desc`. Invalid sort, pagination, or dates return controlled `400`.
 
 The list returns receipt ID, staff ID/name, supplier ID/name, total amount,
 total quantity, creation time, and pagination. The detail additionally returns

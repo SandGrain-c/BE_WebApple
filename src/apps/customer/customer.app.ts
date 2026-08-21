@@ -38,6 +38,7 @@ customerApp.get("/api/health", (_req, res) => {
       database: process.env.DATABASE_URL ? "configured" : "misconfigured",
       cloudinary: integrationStatus.cloudinary,
       payos: integrationStatus.payos,
+      smtp: integrationStatus.smtp,
     },
   });
 });

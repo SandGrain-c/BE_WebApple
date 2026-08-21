@@ -6,6 +6,7 @@
   "scripts": {
     "test": "npm run test:run",
     "test:run": "NODE_ENV=test vitest run",
+    "test:unit": "NODE_ENV=test vitest run --config vitest.unit.config.ts",
     "test:watch": "NODE_ENV=test vitest",
     "test:coverage": "NODE_ENV=test vitest run --coverage",
     "test:smoke": "NODE_ENV=test vitest run tests/api/smoke",

@@ -12,6 +12,16 @@ export type RegisterPayload = {
     identifier: string;
     password: string;
   };
+
+  export type ForgotPasswordPayload = {
+    email?: string;
+  };
+
+  export type ResetPasswordPayload = {
+    token?: string;
+    newPassword?: string;
+    confirmPassword?: string;
+  };
   
   export type AuthUserDto = {
     id: number;

@@ -8,6 +8,7 @@ import {
 } from "./user.dto";
 import { mapUserProfileToDto } from "./user.mapper";
 import bcrypt from "bcrypt";
+import { hashPassword, isValidPassword } from "../../utils/password";
 export class UserServiceError extends Error {
   statusCode: number;
 
@@ -40,12 +41,6 @@ const isValidPhone = (phone: string) => {
   return /^[0-9]{10,11}$/.test(phone);
 };
 
-/**
- * Kiểm tra mật khẩu mới.
- */
-const isValidPassword = (password: string) => {
-  return password.length >= 6;
-};
 /**
  * PATCH /api/users/profile
  * User tự cập nhật thông tin cá nhân.
@@ -241,8 +236,7 @@ export const updateMyPasswordService = async (
     throw new UserServiceError("Mật khẩu hiện tại không chính xác", 400);
   }
 
-  const saltRounds = 10;
-  const newPasswordHash = await bcrypt.hash(newPassword, saltRounds);
+  const newPasswordHash = await hashPassword(newPassword);
 
   await prisma.users.update({
     where: {

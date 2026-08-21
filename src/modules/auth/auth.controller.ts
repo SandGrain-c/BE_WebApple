@@ -3,10 +3,16 @@
 import { Request, Response, NextFunction } from "express";
 import {
   AuthServiceError,
+  forgotPasswordService,
   getMeService,
   loginService,
   registerService,
+  resetPasswordService,
 } from "./auth.service";
+import type {
+  ForgotPasswordPayload,
+  ResetPasswordPayload,
+} from "./auth.dto";
 
 const getUserIdFromRequest = (req: Request): number | null => {
   const user = (req as any).user;
@@ -66,6 +72,42 @@ export const loginController = async (
       success: true,
       message: "Đăng nhập thành công",
       data,
+    });
+  } catch (error) {
+    return handleAuthError(error, res, next);
+  }
+};
+
+export const forgotPasswordController = async (
+  req: Request,
+  res: Response,
+  next: NextFunction,
+) => {
+  try {
+    const message = await forgotPasswordService(
+      req.body as ForgotPasswordPayload,
+    );
+
+    return res.status(200).json({
+      success: true,
+      message,
+    });
+  } catch (error) {
+    return handleAuthError(error, res, next);
+  }
+};
+
+export const resetPasswordController = async (
+  req: Request,
+  res: Response,
+  next: NextFunction,
+) => {
+  try {
+    await resetPasswordService(req.body as ResetPasswordPayload);
+
+    return res.status(200).json({
+      success: true,
+      message: "Mật khẩu đã được đặt lại thành công",
     });
   } catch (error) {
     return handleAuthError(error, res, next);

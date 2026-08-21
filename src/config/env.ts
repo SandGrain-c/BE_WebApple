@@ -8,6 +8,27 @@ export type IntegrationStatus = "configured" | "disabled" | "misconfigured";
 
 const readOptional = (name: string) => process.env[name]?.trim() || "";
 
+const readPositiveInteger = (name: string, fallback: number) => {
+  const rawValue = readOptional(name);
+
+  if (!rawValue) return fallback;
+
+  const parsedValue = Number(rawValue);
+  return Number.isInteger(parsedValue) && parsedValue > 0
+    ? parsedValue
+    : fallback;
+};
+
+const readBoolean = (name: string, fallback: boolean) => {
+  const rawValue = readOptional(name).toLowerCase();
+
+  if (!rawValue) return fallback;
+  if (rawValue === "true") return true;
+  if (rawValue === "false") return false;
+
+  return fallback;
+};
+
 const getGroupStatus = (values: string[]): IntegrationStatus => {
   const configuredCount = values.filter(Boolean).length;
   if (configuredCount === 0) return "disabled";
@@ -26,12 +47,46 @@ const payOSParts = [
   readOptional("PAYOS_API_KEY"),
   readOptional("PAYOS_CHECKSUM_KEY"),
 ];
+const smtpHost = readOptional("SMTP_HOST");
+const smtpPort = readOptional("SMTP_PORT");
+const smtpUser = readOptional("SMTP_USER");
+const smtpPass = readOptional("SMTP_PASS");
+const mailFrom = readOptional("MAIL_FROM");
+const smtpSecure = readOptional("SMTP_SECURE").toLowerCase();
+
+const getSmtpStatus = (): IntegrationStatus => {
+  const configuredCount = [
+    smtpHost,
+    smtpPort,
+    smtpUser,
+    smtpPass,
+    mailFrom,
+  ].filter(Boolean).length;
+
+  if (configuredCount === 0) return "disabled";
+
+  const hasCredentialsPair = Boolean(smtpUser) === Boolean(smtpPass);
+  const parsedPort = Number(smtpPort);
+  const hasValidPort =
+    Number.isInteger(parsedPort) && parsedPort > 0 && parsedPort <= 65_535;
+  const hasValidSecureFlag =
+    !smtpSecure || smtpSecure === "true" || smtpSecure === "false";
+
+  return smtpHost &&
+    mailFrom &&
+    hasCredentialsPair &&
+    hasValidPort &&
+    hasValidSecureFlag
+    ? "configured"
+    : "misconfigured";
+};
 
 export const integrationStatus = {
   cloudinary: cloudinaryUrl
     ? ("configured" as const)
     : getGroupStatus(cloudinaryParts),
   payos: getGroupStatus(payOSParts),
+  smtp: getSmtpStatus(),
 };
 
 export const env = {
@@ -56,6 +111,24 @@ export const env = {
     readOptional("PAYOS_CANCEL_URL") ||
     "http://localhost:3000/checkout/payment-cancel",
   PAYOS_WEBHOOK_URL: readOptional("PAYOS_WEBHOOK_URL"),
+  SMTP_HOST: smtpHost,
+  SMTP_PORT: readPositiveInteger("SMTP_PORT", 587),
+  SMTP_SECURE: readBoolean("SMTP_SECURE", false),
+  SMTP_USER: smtpUser,
+  SMTP_PASS: smtpPass,
+  MAIL_FROM: mailFrom,
+  PASSWORD_RESET_TTL_MINUTES: readPositiveInteger(
+    "PASSWORD_RESET_TTL_MINUTES",
+    30,
+  ),
+  PASSWORD_RESET_RATE_LIMIT_WINDOW_MINUTES: readPositiveInteger(
+    "PASSWORD_RESET_RATE_LIMIT_WINDOW_MINUTES",
+    15,
+  ),
+  PASSWORD_RESET_RATE_LIMIT_MAX: readPositiveInteger(
+    "PASSWORD_RESET_RATE_LIMIT_MAX",
+    20,
+  ),
 } as const;
 
 export const validateCoreEnvironment = () => {
@@ -69,6 +142,6 @@ export const validateCoreEnvironment = () => {
   }
 
   console.log(
-    `[config] database=configured cloudinary=${integrationStatus.cloudinary} payos=${integrationStatus.payos}`,
+    `[config] database=configured cloudinary=${integrationStatus.cloudinary} payos=${integrationStatus.payos} smtp=${integrationStatus.smtp}`,
   );
 };

@@ -41,9 +41,9 @@ class SmtpMailService implements MailService {
     await transporter.sendMail({
       from: env.MAIL_FROM,
       to: recipient,
-      subject: "Đặt lại mật khẩu WebApple",
+      subject: `Đặt lại mật khẩu ${env.APP_NAME}`,
       text: [
-        "Bạn đã yêu cầu đặt lại mật khẩu WebApple.",
+        `Bạn đã yêu cầu đặt lại mật khẩu ${env.APP_NAME}.`,
         "",
         `Mở liên kết sau để đặt mật khẩu mới: ${resetUrl}`,
         "",
@@ -51,8 +51,8 @@ class SmtpMailService implements MailService {
         "Nếu bạn không yêu cầu thao tác này, hãy bỏ qua email.",
       ].join("\n"),
       html: `
-        <h1>Đặt lại mật khẩu WebApple</h1>
-        <p>Bạn đã yêu cầu đặt lại mật khẩu.</p>
+        <h1>Đặt lại mật khẩu ${env.APP_NAME}</h1>
+        <p>Bạn đã yêu cầu đặt lại mật khẩu ${env.APP_NAME}.</p>
         <p><a href="${resetUrl}">Đặt lại mật khẩu</a></p>
         <p>Liên kết sẽ hết hạn sau ${expiresInMinutes} phút.</p>
         <p>Nếu bạn không yêu cầu thao tác này, hãy bỏ qua email.</p>

@@ -90,6 +90,7 @@ export const integrationStatus = {
 };
 
 export const env = {
+  APP_NAME: readOptional("APP_NAME") || "WebApple",
   PORT: process.env.PORT || 5000,
   CLIENT_URL: process.env.CLIENT_URL || "http://localhost:3000",
   ADMIN_CLIENT_URL:

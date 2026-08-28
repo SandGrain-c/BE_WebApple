@@ -17,6 +17,7 @@ vi.mock("nodemailer", () => ({
 
 vi.mock("../../../src/config/env", () => ({
   env: {
+    APP_NAME: "Test Brand",
     CLIENT_URL: "http://localhost:3000",
     SMTP_HOST: "smtp.test.invalid",
     SMTP_PORT: 587,
@@ -78,12 +79,17 @@ describe("Password reset security helpers", () => {
     expect(sendMail).toHaveBeenCalledWith(
       expect.objectContaining({
         to: "customer@test.invalid",
-        subject: "Đặt lại mật khẩu WebApple",
+        subject: "Đặt lại mật khẩu Test Brand",
         text: expect.stringContaining(
-          "http://localhost:3000/reset-password?token=test-token",
+          "Bạn đã yêu cầu đặt lại mật khẩu Test Brand.",
         ),
-        html: expect.stringContaining("Đặt lại mật khẩu"),
+        html: expect.stringContaining("Đặt lại mật khẩu Test Brand"),
       }),
+    );
+
+    const sentMessage = sendMail.mock.calls[0]?.[0];
+    expect(sentMessage?.text).toContain(
+      "http://localhost:3000/reset-password?token=test-token",
     );
   });
 

@@ -24,12 +24,13 @@ SMTP không bắt buộc để Customer API khởi động. Khi endpoint forgot-
 mail, các biến sau phải hợp lệ:
 
 ```env
+APP_NAME=WebApple
 SMTP_HOST=smtp.example.com
 SMTP_PORT=587
 SMTP_SECURE=false
 SMTP_USER=
 SMTP_PASS=
-MAIL_FROM=WebApple <no-reply@example.com>
+MAIL_FROM=no-reply@example.com
 CLIENT_URL=http://localhost:3000
 PASSWORD_RESET_TTL_MINUTES=30
 PASSWORD_RESET_RATE_LIMIT_WINDOW_MINUTES=15
@@ -39,6 +40,10 @@ PASSWORD_RESET_RATE_LIMIT_MAX=20
 `SMTP_USER` và `SMTP_PASS` phải cùng có hoặc cùng để trống tùy SMTP relay. Không
 commit credential thật. `CLIENT_URL` là origin dùng để tạo
 `/reset-password?token=...`.
+
+`APP_NAME` là display brand dùng trong subject, text và HTML của email đặt lại mật
+khẩu. Có thể đổi brand mà không sửa mail template. `MAIL_FROM` vẫn do môi trường
+quản lý và có thể là địa chỉ hoặc mailbox kèm display name theo cấu hình SMTP.
 
 Nếu gửi mail thất bại, token vừa tạo bị xóa và API vẫn trả thông báo generic. Lỗi
 được log mà không kèm email, password hoặc raw token.
